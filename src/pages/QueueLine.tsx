@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Filter, ArrowUpDown } from 'lucide-react';
+import { Search, Filter, ArrowUpDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import { QueueCustomer, saveQueueCustomers, getQueueCustomers } from '@/utils/localStorage';
@@ -15,7 +15,6 @@ import { toast } from '@/hooks/use-toast';
 const QueueLine = () => {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<QueueCustomer[]>([]);
-  const [showForm, setShowForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [loadFilter, setLoadFilter] = useState('all');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -72,7 +71,6 @@ const QueueLine = () => {
       loadBrought: '',
       village: ''
     });
-    setShowForm(false);
     
     toast({
       title: "Success",
@@ -133,11 +131,81 @@ const QueueLine = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Queue Line Management</h1>
-          <Button onClick={() => setShowForm(true)} className="bg-blue-600 hover:bg-blue-700">
-            <Plus size={20} className="mr-2" />
-            Add Customer
-          </Button>
         </div>
+
+        {/* Customer Form - Always Visible */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle>Add New Customer</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name">Name *</Label>
+                <Input
+                  id="name"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                />
+              </div>
+              <div>
+                <Label htmlFor="phoneNumber">Phone Number * (10 digits)</Label>
+                <Input
+                  id="phoneNumber"
+                  required
+                  value={formData.phoneNumber}
+                  onChange={(e) => handlePhoneInput(e.target.value, 'phoneNumber')}
+                  placeholder="Enter 10-digit phone number"
+                  maxLength={10}
+                />
+              </div>
+              <div>
+                <Label htmlFor="village">Village *</Label>
+                <Input
+                  id="village"
+                  required
+                  value={formData.village}
+                  onChange={(e) => setFormData({...formData, village: e.target.value})}
+                />
+              </div>
+              <div>
+                <Label htmlFor="driverName">Driver's Name (Optional)</Label>
+                <Input
+                  id="driverName"
+                  value={formData.driverName}
+                  onChange={(e) => setFormData({...formData, driverName: e.target.value})}
+                />
+              </div>
+              <div>
+                <Label htmlFor="driverPhone">Driver's Phone (Optional)</Label>
+                <Input
+                  id="driverPhone"
+                  value={formData.driverPhone}
+                  onChange={(e) => handlePhoneInput(e.target.value, 'driverPhone')}
+                  placeholder="Enter 10-digit phone number"
+                  maxLength={10}
+                />
+              </div>
+              <div>
+                <Label htmlFor="loadBrought">Load Brought (Bag Count) *</Label>
+                <Input
+                  id="loadBrought"
+                  type="number"
+                  required
+                  min="1"
+                  value={formData.loadBrought}
+                  onChange={(e) => setFormData({...formData, loadBrought: e.target.value})}
+                />
+              </div>
+              <div className="flex space-x-2 items-end md:col-span-2">
+                <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                  Save Customer
+                </Button>
+              </div>
+            </form>
+          </CardContent>
+        </Card>
 
         {/* Filters */}
         <Card className="mb-6">
@@ -190,85 +258,6 @@ const QueueLine = () => {
             </div>
           </CardContent>
         </Card>
-
-        {/* Customer Form */}
-        {showForm && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Add New Customer</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="name">Name *</Label>
-                  <Input
-                    id="name"
-                    required
-                    value={formData.name}
-                    onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="phoneNumber">Phone Number * (10 digits)</Label>
-                  <Input
-                    id="phoneNumber"
-                    required
-                    value={formData.phoneNumber}
-                    onChange={(e) => handlePhoneInput(e.target.value, 'phoneNumber')}
-                    placeholder="Enter 10-digit phone number"
-                    maxLength={10}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="village">Village *</Label>
-                  <Input
-                    id="village"
-                    required
-                    value={formData.village}
-                    onChange={(e) => setFormData({...formData, village: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="driverName">Driver's Name (Optional)</Label>
-                  <Input
-                    id="driverName"
-                    value={formData.driverName}
-                    onChange={(e) => setFormData({...formData, driverName: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="driverPhone">Driver's Phone (Optional)</Label>
-                  <Input
-                    id="driverPhone"
-                    value={formData.driverPhone}
-                    onChange={(e) => handlePhoneInput(e.target.value, 'driverPhone')}
-                    placeholder="Enter 10-digit phone number"
-                    maxLength={10}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="loadBrought">Load Brought (Bag Count) *</Label>
-                  <Input
-                    id="loadBrought"
-                    type="number"
-                    required
-                    min="1"
-                    value={formData.loadBrought}
-                    onChange={(e) => setFormData({...formData, loadBrought: e.target.value})}
-                  />
-                </div>
-                <div className="flex space-x-2 items-end md:col-span-2">
-                  <Button type="submit" className="bg-green-600 hover:bg-green-700">
-                    Save Customer
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Customer Table */}
         <Card>
@@ -337,9 +326,7 @@ const QueueLine = () => {
             {filteredAndSortedCustomers.length === 0 && (
               <div className="text-center py-12">
                 <div className="text-gray-500 text-lg">No customers found</div>
-                <Button onClick={() => setShowForm(true)} className="mt-4">
-                  Add First Customer
-                </Button>
+                <p className="text-sm text-gray-400 mt-2">Add customers using the form above</p>
               </div>
             )}
           </CardContent>

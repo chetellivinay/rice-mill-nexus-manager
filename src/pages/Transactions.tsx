@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -7,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Search, Calculator, Trash2, Eye } from 'lucide-react';
-import { Transaction, getTransactions, saveTransactions, addToBin } from '@/utils/localStorage';
+import { Transaction, getTransactions, saveTransactions, addToBin, getInventory, saveInventory } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -23,6 +22,7 @@ const Transactions = () => {
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showInventoryRestoreDialog, setShowInventoryRestoreDialog] = useState(false);
   const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,9 +41,50 @@ const Transactions = () => {
     return matchesSearch;
   });
 
-  const deleteTransaction = (id: string) => {
+  // Group transactions by date
+  const groupedTransactions = filteredTransactions.reduce((groups, transaction) => {
+    const date = transaction.date;
+    if (!groups[date]) {
+      groups[date] = [];
+    }
+    groups[date].push(transaction);
+    return groups;
+  }, {} as Record<string, Transaction[]>);
+
+  // Sort dates in descending order
+  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+  const restoreInventory = (transaction: Transaction) => {
+    const inventory = getInventory();
+    
+    transaction.items.forEach(item => {
+      const inventoryItem = inventory.find(inv => {
+        if (item.name === 'Powders') return inv.name === 'Powders';
+        if (item.name === 'Small Bags') return inv.name === 'Small Bags';
+        if (item.name === 'Big Bags') return inv.name === 'Big Bags';
+        if (item.name === 'Bran Bags') return inv.name === 'Bran Bags';
+        return false;
+      });
+      
+      if (inventoryItem) {
+        inventoryItem.count += item.quantity;
+      }
+    });
+    
+    saveInventory(inventory);
+    toast({
+      title: "Inventory Restored",
+      description: "Inventory items have been added back"
+    });
+  };
+
+  const deleteTransaction = (id: string, shouldRestoreInventory: boolean = false) => {
     const transactionToDelete = transactions.find(t => t.id === id);
     if (transactionToDelete) {
+      if (shouldRestoreInventory) {
+        restoreInventory(transactionToDelete);
+      }
+      
       addToBin('transaction', transactionToDelete);
       
       const updatedTransactions = transactions.filter(t => t.id !== id);
@@ -51,6 +92,7 @@ const Transactions = () => {
       saveTransactions(updatedTransactions);
       
       setShowDeleteDialog(false);
+      setShowInventoryRestoreDialog(false);
       setTransactionToDelete(null);
       
       toast({
@@ -58,6 +100,16 @@ const Transactions = () => {
         description: "Transaction moved to bin for 7 days"
       });
     }
+  };
+
+  const handleDeleteClick = (id: string) => {
+    setTransactionToDelete(id);
+    setShowDeleteDialog(true);
+  };
+
+  const handleConfirmDelete = () => {
+    setShowDeleteDialog(false);
+    setShowInventoryRestoreDialog(true);
   };
 
   const calculateHamali = () => {
@@ -83,11 +135,6 @@ const Transactions = () => {
     setShowTransactionDialog(true);
   };
 
-  const handleDeleteClick = (id: string) => {
-    setTransactionToDelete(id);
-    setShowDeleteDialog(true);
-  };
-
   const toggleHamaliSelection = (id: string) => {
     if (selectedForHamali.includes(id)) {
       setSelectedForHamali(selectedForHamali.filter(txId => txId !== id));
@@ -106,6 +153,11 @@ const Transactions = () => {
 
   const totalHamali = calculateHamali();
   const todayTotal = calculateTodayTotal();
+
+  const getDayName = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', { weekday: 'long' });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -161,96 +213,104 @@ const Transactions = () => {
           </CardContent>
         </Card>
 
-        {/* Transactions Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Transactions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Time</TableHead>
-                    <TableHead>Customer Name</TableHead>
-                    <TableHead>Village</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Due</TableHead>
-                    {(showHamaliCalculator || showTodayCalculator) && (
-                      <TableHead>Select</TableHead>
-                    )}
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredTransactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell>{transaction.time}</TableCell>
-                      <TableCell className="font-medium">{transaction.name}</TableCell>
-                      <TableCell>{transaction.village}</TableCell>
-                      <TableCell>₹{transaction.totalAmount.toFixed(2)}</TableCell>
-                      <TableCell>
-                        {transaction.dueAmount > 0 && (
-                          <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+        {/* Transactions Grouped by Date */}
+        <div className="space-y-6">
+          {sortedDates.map((date) => (
+            <Card key={date}>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <span>{date}</span>
+                  <Badge variant="secondary">{getDayName(date)}</Badge>
+                  <Badge variant="outline">{groupedTransactions[date].length} transactions</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Customer Name</TableHead>
+                        <TableHead>Village</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Due</TableHead>
+                        {(showHamaliCalculator || showTodayCalculator) && (
+                          <TableHead>Select</TableHead>
                         )}
-                      </TableCell>
-                      {(showHamaliCalculator || showTodayCalculator) && (
-                        <TableCell>
-                          <div className="flex space-x-2">
-                            {showHamaliCalculator && (
-                              <div className="flex items-center space-x-2">
-                                <Checkbox
-                                  checked={selectedForHamali.includes(transaction.id)}
-                                  onCheckedChange={() => toggleHamaliSelection(transaction.id)}
-                                />
-                                <span className="text-sm">Hamali</span>
-                              </div>
+                        <TableHead>Action</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {groupedTransactions[date].map((transaction) => (
+                        <TableRow key={transaction.id}>
+                          <TableCell>{transaction.time}</TableCell>
+                          <TableCell className="font-medium">{transaction.name}</TableCell>
+                          <TableCell>{transaction.village}</TableCell>
+                          <TableCell>₹{transaction.totalAmount.toFixed(2)}</TableCell>
+                          <TableCell>
+                            {transaction.dueAmount > 0 && (
+                              <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
                             )}
-                            {showTodayCalculator && (
-                              <div className="flex items-center space-x-2">
-                                <Checkbox
-                                  checked={selectedForToday.includes(transaction.id)}
-                                  onCheckedChange={() => toggleTodaySelection(transaction.id)}
-                                />
-                                <span className="text-sm">Today</span>
+                          </TableCell>
+                          {(showHamaliCalculator || showTodayCalculator) && (
+                            <TableCell>
+                              <div className="flex space-x-2">
+                                {showHamaliCalculator && (
+                                  <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                      checked={selectedForHamali.includes(transaction.id)}
+                                      onCheckedChange={() => toggleHamaliSelection(transaction.id)}
+                                    />
+                                    <span className="text-sm">Hamali</span>
+                                  </div>
+                                )}
+                                {showTodayCalculator && (
+                                  <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                      checked={selectedForToday.includes(transaction.id)}
+                                      onCheckedChange={() => toggleTodaySelection(transaction.id)}
+                                    />
+                                    <span className="text-sm">Today</span>
+                                  </div>
+                                )}
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                      )}
-                      <TableCell>
-                        <div className="flex space-x-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => viewTransaction(transaction)}
-                          >
-                            <Eye size={16} className="mr-1" />
-                            View
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleDeleteClick(transaction.id)}
-                          >
-                            <Trash2 size={16} className="mr-1" />
-                            Delete Bin
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                            </TableCell>
+                          )}
+                          <TableCell>
+                            <div className="flex space-x-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => viewTransaction(transaction)}
+                              >
+                                <Eye size={16} className="mr-1" />
+                                View
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteClick(transaction.id)}
+                              >
+                                <Trash2 size={16} className="mr-1" />
+                                Delete Bin
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
-            {filteredTransactions.length === 0 && (
-              <div className="text-center py-12">
-                <div className="text-gray-500 text-lg">No transactions found</div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {filteredTransactions.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-gray-500 text-lg">No transactions found</div>
+          </div>
+        )}
 
         {/* Calculator Results */}
         {(showHamaliCalculator && selectedForHamali.length > 0) && (
@@ -359,8 +419,28 @@ const Transactions = () => {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={() => transactionToDelete && deleteTransaction(transactionToDelete)}>
+              <AlertDialogAction onClick={handleConfirmDelete}>
                 Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Inventory Restore Dialog */}
+        <AlertDialog open={showInventoryRestoreDialog} onOpenChange={setShowInventoryRestoreDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Restore Inventory</AlertDialogTitle>
+              <AlertDialogDescription>
+                Do you want to restore the inventory items used in this transaction back to the inventory?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => transactionToDelete && deleteTransaction(transactionToDelete, false)}>
+                No
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => transactionToDelete && deleteTransaction(transactionToDelete, true)}>
+                Restore
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
