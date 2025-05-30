@@ -17,7 +17,7 @@ const Billing = () => {
     name: '',
     village: '',
     phone: '',
-    millingRate: rates.milling[0],
+    millingRate: rates.milling[0] as number,
     millingQuantity: '',
     powderQuantity: '',
     bigBagsQuantity: '',
@@ -243,7 +243,7 @@ const Billing = () => {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {rates.milling.map((rate) => (
+                          {(rates.milling as number[]).map((rate) => (
                             <SelectItem key={rate} value={rate.toString()}>{rate.toFixed(2)}</SelectItem>
                           ))}
                         </SelectContent>
@@ -283,7 +283,7 @@ const Billing = () => {
                           type="number"
                           min="0"
                           step="0.01"
-                          value={rates[item.rateKey as keyof typeof rates]}
+                          value={rates[item.rateKey as keyof typeof rates] as number}
                           onChange={(e) => handleRateChange(item.rateKey, parseFloat(e.target.value) || 0)}
                         />
                       </td>
