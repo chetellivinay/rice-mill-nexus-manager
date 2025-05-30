@@ -1,3 +1,4 @@
+
 export interface QueueCustomer {
   id: string;
   name: string;
@@ -39,6 +40,21 @@ export interface StockItem {
   name: string;
   kg25: number;
   kg50: number;
+}
+
+export interface StockTransaction {
+  id: string;
+  customerName: string;
+  phoneNumber: string;
+  village: string;
+  stockBought: string;
+  quantity: number;
+  rate: number;
+  totalAmount: number;
+  paidAmount: number;
+  dueAmount: number;
+  date: string;
+  time: string;
 }
 
 export interface DueRecord {

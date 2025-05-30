@@ -161,7 +161,14 @@ const Analytics = () => {
                   mode="range"
                   selected={selectedDateRange}
                   onSelect={(range) => {
-                    setSelectedDateRange(range || {from: undefined, to: undefined});
+                    if (range) {
+                      setSelectedDateRange({
+                        from: range.from,
+                        to: range.to
+                      });
+                    } else {
+                      setSelectedDateRange({from: undefined, to: undefined});
+                    }
                   }}
                   initialFocus
                   className={cn("p-3 pointer-events-auto")}
