@@ -249,3 +249,28 @@ export const getDefaultRates = () => {
 export const saveRates = (rates: any): void => {
   saveToStorage(STORAGE_KEYS.RATES, rates);
 };
+
+// Stock transactions functions
+export const saveStockTransactions = (transactions: StockTransaction[]): void => {
+  saveToStorage('rice_mill_stock_transactions', transactions);
+};
+
+export const getStockTransactions = (): StockTransaction[] => {
+  return getFromStorage('rice_mill_stock_transactions', []);
+};
+
+// Default stock rates
+export const getDefaultStockRates = () => {
+  return getFromStorage('rice_mill_stock_rates', {
+    'Bran Stock': 25.00,
+    'Dhana Stock': 30.00,
+    'Nukalu Stock': 12.00,
+    'HMT Rice': 45.00,
+    'JSR Rice': 50.00,
+    'BPT Rice': 48.00
+  });
+};
+
+export const saveStockRates = (rates: any): void => {
+  saveToStorage('rice_mill_stock_rates', rates);
+};

@@ -2,284 +2,295 @@
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
-import { getTransactions } from '@/utils/localStorage';
+import { Button } from '@/components/ui/button';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
+import { CalendarIcon, BarChart3, TrendingUp, Users, DollarSign } from 'lucide-react';
+import { format } from 'date-fns';
+import { getTransactions, getQueueCustomers, getWorkers, getStockTransactions } from '@/utils/localStorage';
+import { cn } from '@/lib/utils';
 
 const Analytics = () => {
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDateRange, setSelectedDateRange] = useState<{from: Date | undefined, to: Date | undefined}>({from: undefined, to: undefined});
   const [transactions, setTransactions] = useState<any[]>([]);
-  const [timeRange, setTimeRange] = useState('daily');
+  const [stockTransactions, setStockTransactions] = useState<any[]>([]);
+  const [queueCustomers, setQueueCustomers] = useState<any[]>([]);
+  const [workers, setWorkers] = useState<any[]>([]);
 
   useEffect(() => {
     setTransactions(getTransactions());
+    setStockTransactions(getStockTransactions());
+    setQueueCustomers(getQueueCustomers());
+    setWorkers(getWorkers());
   }, []);
 
+  const filterDataByDate = (data: any[], date: Date) => {
+    const dateStr = date.toLocaleDateString();
+    return data.filter(item => item.date === dateStr);
+  };
+
+  const filterDataByDateRange = (data: any[], from: Date | undefined, to: Date | undefined) => {
+    if (!from || !to) return data;
+    
+    return data.filter(item => {
+      const itemDate = new Date(item.date);
+      return itemDate >= from && itemDate <= to;
+    });
+  };
+
   const getFilteredData = () => {
-    const now = new Date();
-    let filteredTransactions = transactions;
-
-    if (timeRange === 'daily') {
-      const today = now.toLocaleDateString();
-      filteredTransactions = transactions.filter(t => t.date === today);
-    } else if (timeRange === 'monthly') {
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      filteredTransactions = transactions.filter(t => {
-        const transactionDate = new Date(t.date);
-        return transactionDate.getMonth() === currentMonth && transactionDate.getFullYear() === currentYear;
-      });
-    } else if (timeRange === 'yearly') {
-      const currentYear = now.getFullYear();
-      filteredTransactions = transactions.filter(t => {
-        const transactionDate = new Date(t.date);
-        return transactionDate.getFullYear() === currentYear;
-      });
+    if (selectedDateRange.from && selectedDateRange.to) {
+      return {
+        transactions: filterDataByDateRange(transactions, selectedDateRange.from, selectedDateRange.to),
+        stockTransactions: filterDataByDateRange(stockTransactions, selectedDateRange.from, selectedDateRange.to),
+        queueCustomers: filterDataByDateRange(queueCustomers, selectedDateRange.from, selectedDateRange.to)
+      };
+    } else {
+      return {
+        transactions: filterDataByDate(transactions, selectedDate),
+        stockTransactions: filterDataByDate(stockTransactions, selectedDate),
+        queueCustomers: filterDataByDate(queueCustomers, selectedDate)
+      };
     }
-
-    return filteredTransactions;
   };
 
-  const getRevenueData = () => {
-    const filteredData = getFilteredData();
-    const revenueByDate: { [key: string]: number } = {};
+  const filteredData = getFilteredData();
 
-    filteredData.forEach(transaction => {
-      const date = transaction.date;
-      revenueByDate[date] = (revenueByDate[date] || 0) + transaction.totalAmount;
+  const getTotalRevenue = () => {
+    const transactionRevenue = filteredData.transactions.reduce((sum, t) => sum + t.totalAmount, 0);
+    const stockRevenue = filteredData.stockTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
+    return transactionRevenue + stockRevenue;
+  };
+
+  const getTotalDues = () => {
+    const transactionDues = filteredData.transactions.reduce((sum, t) => sum + t.dueAmount, 0);
+    const stockDues = filteredData.stockTransactions.reduce((sum, t) => sum + t.dueAmount, 0);
+    return transactionDues + stockDues;
+  };
+
+  const getMonthlyData = () => {
+    const months = {};
+    
+    transactions.forEach(transaction => {
+      const date = new Date(transaction.date);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!months[monthKey]) {
+        months[monthKey] = { month: monthKey, revenue: 0, transactions: 0 };
+      }
+      
+      months[monthKey].revenue += transaction.totalAmount;
+      months[monthKey].transactions += 1;
     });
 
-    return Object.entries(revenueByDate)
-      .map(([date, revenue]) => ({ date, revenue }))
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      .slice(-10); // Show last 10 entries
+    stockTransactions.forEach(transaction => {
+      const date = new Date(transaction.date);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (!months[monthKey]) {
+        months[monthKey] = { month: monthKey, revenue: 0, transactions: 0 };
+      }
+      
+      months[monthKey].revenue += transaction.totalAmount;
+      months[monthKey].transactions += 1;
+    });
+
+    return Object.values(months).sort((a: any, b: any) => a.month.localeCompare(b.month));
   };
 
-  const getItemAnalysis = () => {
-    const filteredData = getFilteredData();
-    const itemData: { [key: string]: { quantity: number, revenue: number } } = {};
-
-    filteredData.forEach(transaction => {
-      transaction.items.forEach((item: any) => {
-        if (!itemData[item.name]) {
-          itemData[item.name] = { quantity: 0, revenue: 0 };
+  const getServiceDistribution = () => {
+    const services = {};
+    
+    filteredData.transactions.forEach(transaction => {
+      transaction.items.forEach(item => {
+        if (!services[item.name]) {
+          services[item.name] = { name: item.name, value: 0, count: 0 };
         }
-        itemData[item.name].quantity += item.quantity;
-        itemData[item.name].revenue += item.total;
+        services[item.name].value += item.total;
+        services[item.name].count += item.quantity;
       });
     });
 
-    return Object.entries(itemData)
-      .map(([name, data]) => ({ name, ...data }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 8); // Top 8 items
+    return Object.values(services);
   };
 
-  const getCustomerAnalysis = () => {
-    const filteredData = getFilteredData();
-    const customerData: { [key: string]: number } = {};
+  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
-    filteredData.forEach(transaction => {
-      customerData[transaction.name] = (customerData[transaction.name] || 0) + transaction.totalAmount;
-    });
-
-    return Object.entries(customerData)
-      .map(([name, revenue]) => ({ name, revenue }))
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10); // Top 10 customers
-  };
-
-  const getPaymentAnalysis = () => {
-    const filteredData = getFilteredData();
-    let totalRevenue = 0;
-    let totalPaid = 0;
-    let totalDue = 0;
-
-    filteredData.forEach(transaction => {
-      totalRevenue += transaction.totalAmount;
-      totalPaid += transaction.paidAmount;
-      totalDue += transaction.dueAmount;
-    });
-
-    return [
-      { name: 'Paid', value: totalPaid, color: '#10B981' },
-      { name: 'Due', value: totalDue, color: '#EF4444' }
-    ];
-  };
-
-  const revenueData = getRevenueData();
-  const itemData = getItemAnalysis();
-  const customerData = getCustomerAnalysis();
-  const paymentData = getPaymentAnalysis();
-
-  const filteredTransactions = getFilteredData();
-  const totalRevenue = filteredTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
-  const totalTransactions = filteredTransactions.length;
-  const averageTransaction = totalTransactions > 0 ? totalRevenue / totalTransactions : 0;
-
-  const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#FFC658', '#FF7C7C'];
+  const monthlyData = getMonthlyData();
+  const serviceData = getServiceDistribution();
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-800">Data Analysis</h1>
-          <Select value={timeRange} onValueChange={setTimeRange}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="daily">Daily</SelectItem>
-              <SelectItem value="monthly">Monthly</SelectItem>
-              <SelectItem value="yearly">Yearly</SelectItem>
-            </SelectContent>
-          </Select>
+          <h1 className="text-3xl font-bold text-gray-800">Analytics Dashboard</h1>
+          <div className="flex space-x-2">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" className={cn("justify-start text-left font-normal", !selectedDate && "text-muted-foreground")}>
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {selectedDate ? format(selectedDate, "PPP") : <span>Pick a date</span>}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="single"
+                  selected={selectedDate}
+                  onSelect={(date) => {
+                    setSelectedDate(date || new Date());
+                    setSelectedDateRange({from: undefined, to: undefined});
+                  }}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+            
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline">
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  Date Range
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={selectedDateRange}
+                  onSelect={(range) => {
+                    setSelectedDateRange(range || {from: undefined, to: undefined});
+                  }}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
 
         {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <Card>
-            <CardContent className="p-6">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">₹{totalRevenue.toFixed(2)}</div>
-                <div className="text-gray-600">Total Revenue</div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">₹{getTotalRevenue().toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">
+                {selectedDateRange.from && selectedDateRange.to ? 'Selected period' : 'Today'}
+              </p>
             </CardContent>
           </Card>
+
           <Card>
-            <CardContent className="p-6">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{totalTransactions}</div>
-                <div className="text-gray-600">Total Transactions</div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Transactions</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{filteredData.transactions.length + filteredData.stockTransactions.length}</div>
+              <p className="text-xs text-muted-foreground">
+                {filteredData.transactions.length} billing + {filteredData.stockTransactions.length} stock
+              </p>
             </CardContent>
           </Card>
+
           <Card>
-            <CardContent className="p-6">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">₹{averageTransaction.toFixed(2)}</div>
-                <div className="text-gray-600">Average Transaction</div>
-              </div>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Dues</CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-red-600">₹{getTotalDues().toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Outstanding amount</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Queue Customers</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{filteredData.queueCustomers.length}</div>
+              <p className="text-xs text-muted-foreground">
+                {selectedDateRange.from && selectedDateRange.to ? 'In period' : 'Today'}
+              </p>
             </CardContent>
           </Card>
         </div>
 
         {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Revenue Trend */}
           <Card>
             <CardHeader>
-              <CardTitle>Revenue Trend</CardTitle>
+              <CardTitle>Monthly Revenue Trend</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={revenueData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis />
-                    <Tooltip formatter={(value) => [`₹${value}`, 'Revenue']} />
-                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={2} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Payment Analysis */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Payment Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={paymentData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, value }) => `${name}: ₹${value.toFixed(0)}`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {paymentData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => `₹${value}`} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Top Items */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Top Items by Revenue</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="h-80">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={itemData} layout="horizontal">
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis type="number" />
-                    <YAxis dataKey="name" type="category" width={80} />
-                    <Tooltip formatter={(value) => [`₹${value}`, 'Revenue']} />
-                    <Bar dataKey="revenue" fill="#82CA9D" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Top Customers */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Top Customers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {customerData.slice(0, 8).map((customer, index) => (
-                  <div key={customer.name} className="flex justify-between items-center">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-bold text-sm">
-                        {index + 1}
-                      </div>
-                      <span className="font-medium">{customer.name}</span>
-                    </div>
-                    <span className="font-bold text-blue-600">₹{customer.revenue.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Item Quantity Analysis */}
-        <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Item Quantity Analysis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={itemData}>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={monthlyData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
+                  <XAxis dataKey="month" />
                   <YAxis />
                   <Tooltip />
-                  <Bar dataKey="quantity" fill="#FFBB28" name="Quantity" />
+                  <Legend />
+                  <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={2} />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Service Distribution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={serviceData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {serviceData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Monthly Transaction Count</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={monthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="transactions" fill="#82ca9d" />
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );

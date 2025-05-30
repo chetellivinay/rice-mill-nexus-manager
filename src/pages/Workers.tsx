@@ -6,14 +6,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Plus, DollarSign, User } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Plus, DollarSign, User, Edit, Check, X } from 'lucide-react';
 import { getWorkers, saveWorkers, WorkerRecord } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
 const Workers = () => {
   const [workers, setWorkers] = useState<WorkerRecord[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingWorker, setEditingWorker] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState<Partial<WorkerRecord>>({});
   const [formData, setFormData] = useState({
     name: '',
     borrowedAmount: '',
@@ -53,7 +55,45 @@ const Workers = () => {
     });
   };
 
-  const updateWorkerPayment = (id: string, paymentAmount: number) => {
+  const startEditWorker = (worker: WorkerRecord) => {
+    setEditingWorker(worker.id);
+    setEditFormData(worker);
+  };
+
+  const saveEditWorker = () => {
+    if (!editingWorker || !editFormData.name) return;
+
+    const updatedWorkers = workers.map(worker => {
+      if (worker.id === editingWorker) {
+        const updatedWorker = {
+          ...worker,
+          name: editFormData.name || worker.name,
+          borrowedAmount: editFormData.borrowedAmount || worker.borrowedAmount,
+          salary: editFormData.salary || worker.salary,
+          totalDue: (editFormData.borrowedAmount || worker.borrowedAmount) - (editFormData.salary || worker.salary)
+        };
+        return updatedWorker;
+      }
+      return worker;
+    });
+    
+    setWorkers(updatedWorkers);
+    saveWorkers(updatedWorkers);
+    setEditingWorker(null);
+    setEditFormData({});
+    
+    toast({
+      title: "Success",
+      description: "Worker updated successfully"
+    });
+  };
+
+  const cancelEditWorker = () => {
+    setEditingWorker(null);
+    setEditFormData({});
+  };
+
+  const makePayment = (id: string, paymentAmount: number) => {
     const updatedWorkers = workers.map(worker => {
       if (worker.id === id) {
         const newSalary = worker.salary + paymentAmount;
@@ -71,7 +111,7 @@ const Workers = () => {
     saveWorkers(updatedWorkers);
     
     toast({
-      title: "Payment Updated",
+      title: "Payment Recorded",
       description: `₹${paymentAmount} salary payment recorded`
     });
   };
@@ -94,6 +134,17 @@ const Workers = () => {
     toast({
       title: "Salary Marked as Paid",
       description: "Worker's salary has been fully paid"
+    });
+  };
+
+  const deleteWorker = (id: string) => {
+    const updatedWorkers = workers.filter(worker => worker.id !== id);
+    setWorkers(updatedWorkers);
+    saveWorkers(updatedWorkers);
+    
+    toast({
+      title: "Worker Deleted",
+      description: "Worker record has been removed"
     });
   };
 
@@ -163,6 +214,7 @@ const Workers = () => {
                     step="0.01"
                     value={formData.borrowedAmount}
                     onChange={(e) => setFormData({...formData, borrowedAmount: e.target.value})}
+                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <div>
@@ -174,6 +226,7 @@ const Workers = () => {
                     step="0.01"
                     value={formData.salary}
                     onChange={(e) => setFormData({...formData, salary: e.target.value})}
+                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
                 <div className="flex space-x-2 md:col-span-3">
@@ -195,10 +248,38 @@ const Workers = () => {
             <Card key={worker.id} className="hover:shadow-lg transition-shadow">
               <CardHeader className="pb-3">
                 <div className="flex justify-between items-start">
-                  <CardTitle className="text-lg flex items-center">
-                    <User size={20} className="mr-2" />
-                    {worker.name}
-                  </CardTitle>
+                  {editingWorker === worker.id ? (
+                    <div className="flex-1 space-y-2">
+                      <Input
+                        value={editFormData.name || ''}
+                        onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
+                        className="font-bold"
+                      />
+                      <div className="flex space-x-1">
+                        <Button size="sm" onClick={saveEditWorker}>
+                          <Check size={16} />
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={cancelEditWorker}>
+                          <X size={16} />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <CardTitle className="text-lg flex items-center">
+                        <User size={20} className="mr-2" />
+                        {worker.name}
+                      </CardTitle>
+                      <div className="flex space-x-1">
+                        <Button size="sm" variant="outline" onClick={() => startEditWorker(worker)}>
+                          <Edit size={16} />
+                        </Button>
+                        <Button size="sm" variant="destructive" onClick={() => deleteWorker(worker.id)}>
+                          <X size={16} />
+                        </Button>
+                      </div>
+                    </>
+                  )}
                   <Badge variant={worker.totalDue <= 0 ? "default" : "destructive"}>
                     {worker.totalDue <= 0 ? "Paid" : "Due"}
                   </Badge>
@@ -209,32 +290,101 @@ const Workers = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Borrowed:</span>
-                    <span className="font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Salary Paid:</span>
-                    <span className="font-bold text-green-600">₹{worker.salary.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Due Amount:</span>
-                    <span className={`font-bold ${worker.totalDue <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      ₹{worker.totalDue.toFixed(2)}
-                    </span>
-                  </div>
-                  
-                  {worker.totalDue > 0 && (
-                    <div className="pt-3 border-t space-y-2">
-                      <Button
-                        size="sm"
-                        onClick={() => markSalaryPaid(worker.id)}
-                        className="w-full bg-green-600 hover:bg-green-700"
-                      >
-                        <DollarSign size={16} className="mr-1" />
-                        Mark as Fully Paid
-                      </Button>
+                  {editingWorker === worker.id ? (
+                    <div className="space-y-2">
+                      <div>
+                        <Label className="text-sm">Borrowed Amount:</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editFormData.borrowedAmount || 0}
+                          onChange={(e) => setEditFormData({...editFormData, borrowedAmount: parseFloat(e.target.value) || 0})}
+                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm">Salary Paid:</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={editFormData.salary || 0}
+                          onChange={(e) => setEditFormData({...editFormData, salary: parseFloat(e.target.value) || 0})}
+                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                      </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Borrowed:</span>
+                        <span className="font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Salary Paid:</span>
+                        <span className="font-bold text-green-600">₹{worker.salary.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-sm">Due Amount:</span>
+                        <span className={`font-bold ${worker.totalDue <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          ₹{worker.totalDue.toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      {worker.totalDue > 0 && (
+                        <div className="pt-3 border-t space-y-2">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
+                                <DollarSign size={16} className="mr-1" />
+                                Make Payment
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Make Payment to {worker.name}</DialogTitle>
+                              </DialogHeader>
+                              <div className="space-y-4">
+                                <div>
+                                  <Label>Payment Amount</Label>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    max={worker.totalDue}
+                                    step="0.01"
+                                    placeholder="Enter payment amount"
+                                    id={`payment-${worker.id}`}
+                                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                </div>
+                                <div className="flex space-x-2">
+                                  <Button
+                                    onClick={() => {
+                                      const input = document.getElementById(`payment-${worker.id}`) as HTMLInputElement;
+                                      const amount = parseFloat(input?.value || '0');
+                                      if (amount > 0) {
+                                        makePayment(worker.id, amount);
+                                        input.value = '';
+                                      }
+                                    }}
+                                    className="bg-green-600 hover:bg-green-700"
+                                  >
+                                    Record Payment
+                                  </Button>
+                                  <Button
+                                    onClick={() => markSalaryPaid(worker.id)}
+                                    variant="outline"
+                                  >
+                                    Pay Full Amount
+                                  </Button>
+                                </div>
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </CardContent>
