@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Users, FileText, History, Package, BarChart3, UserCheck } from 'lucide-react';
+import { Users, FileText, History, Package, BarChart3, UserCheck, DollarSign, Trash2 } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 
 const Index = () => {
@@ -21,7 +21,7 @@ const Index = () => {
       color: 'bg-green-500 hover:bg-green-600'
     },
     {
-      title: 'Transactions History',
+      title: 'Transactions',
       description: 'View and manage transaction records',
       icon: History,
       path: '/transactions',
@@ -35,18 +35,32 @@ const Index = () => {
       color: 'bg-orange-500 hover:bg-orange-600'
     },
     {
-      title: 'Data Analysis',
+      title: 'Analytics',
       description: 'View reports and analytics',
       icon: BarChart3,
       path: '/analytics',
       color: 'bg-red-500 hover:bg-red-600'
     },
     {
-      title: 'Dues & Workers',
-      description: 'Manage customer dues and worker records',
-      icon: UserCheck,
+      title: 'Dues',
+      description: 'Manage customer dues and payments',
+      icon: DollarSign,
       path: '/dues',
       color: 'bg-indigo-500 hover:bg-indigo-600'
+    },
+    {
+      title: 'Workers',
+      description: 'Manage worker records and salaries',
+      icon: UserCheck,
+      path: '/workers',
+      color: 'bg-teal-500 hover:bg-teal-600'
+    },
+    {
+      title: 'Bin',
+      description: 'Manage deleted items and restore data',
+      icon: Trash2,
+      path: '/bin',
+      color: 'bg-gray-500 hover:bg-gray-600'
     }
   ];
 
@@ -63,19 +77,19 @@ const Index = () => {
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-7xl mx-auto">
           {sections.map((section) => {
             const Icon = section.icon;
             return (
               <Link
                 key={section.path}
                 to={section.path}
-                className={`${section.color} text-white p-8 rounded-xl shadow-lg transform hover:scale-105 transition-all duration-300 block`}
+                className={`${section.color} text-white p-6 rounded-xl shadow-lg transform hover:scale-105 transition-all duration-300 block`}
               >
                 <div className="text-center">
-                  <Icon size={48} className="mx-auto mb-4" />
-                  <h3 className="text-2xl font-bold mb-2">{section.title}</h3>
-                  <p className="text-white/90">{section.description}</p>
+                  <Icon size={40} className="mx-auto mb-3" />
+                  <h3 className="text-lg font-bold mb-2">{section.title}</h3>
+                  <p className="text-white/90 text-sm">{section.description}</p>
                 </div>
               </Link>
             );
