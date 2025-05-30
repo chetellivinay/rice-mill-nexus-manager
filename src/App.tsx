@@ -11,6 +11,9 @@ import Transactions from "./pages/Transactions";
 import Store from "./pages/Store";
 import Analytics from "./pages/Analytics";
 import DuesAndWorkers from "./pages/DuesAndWorkers";
+import Dues from "./pages/Dues";
+import Workers from "./pages/Workers";
+import Bin from "./pages/Bin";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,7 +31,10 @@ const App = () => (
           <Route path="/transactions" element={<Transactions />} />
           <Route path="/store" element={<Store />} />
           <Route path="/analytics" element={<Analytics />} />
-          <Route path="/dues" element={<DuesAndWorkers />} />
+          <Route path="/dues-workers" element={<DuesAndWorkers />} />
+          <Route path="/dues" element={<Dues />} />
+          <Route path="/workers" element={<Workers />} />
+          <Route path="/bin" element={<Bin />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

@@ -1,4 +1,3 @@
-
 export interface QueueCustomer {
   id: string;
   name: string;
@@ -8,6 +7,7 @@ export interface QueueCustomer {
   loadBrought: number;
   arrivalTime: string;
   date: string;
+  village?: string;
 }
 
 export interface BillingItem {
@@ -65,6 +65,14 @@ export interface DeletedTransaction {
   deletedDate: string;
 }
 
+export interface BinItem {
+  id: string;
+  type: 'transaction' | 'inventory';
+  data: any;
+  deletedDate: string;
+  restoreDeadline: string;
+}
+
 // Storage keys
 const STORAGE_KEYS = {
   QUEUE: 'rice_mill_queue',
@@ -74,7 +82,8 @@ const STORAGE_KEYS = {
   DUES: 'rice_mill_dues',
   WORKERS: 'rice_mill_workers',
   DELETED_TRANSACTIONS: 'rice_mill_deleted_transactions',
-  RATES: 'rice_mill_rates'
+  RATES: 'rice_mill_rates',
+  BIN: 'rice_mill_bin'
 };
 
 // Generic storage functions
@@ -181,6 +190,45 @@ export const cleanupDeletedTransactions = (): void => {
   );
   
   saveDeletedTransactions(cleanedTransactions);
+};
+
+// Bin functions
+export const saveBinItems = (items: BinItem[]): void => {
+  saveToStorage('rice_mill_bin', items);
+};
+
+export const getBinItems = (): BinItem[] => {
+  return getFromStorage('rice_mill_bin', []);
+};
+
+export const addToBin = (type: 'transaction' | 'inventory', data: any): void => {
+  const binItems = getBinItems();
+  const deletedDate = new Date();
+  const restoreDeadline = new Date(deletedDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+  
+  const binItem: BinItem = {
+    id: Date.now().toString(),
+    type,
+    data,
+    deletedDate: deletedDate.toISOString(),
+    restoreDeadline: restoreDeadline.toISOString()
+  };
+  
+  binItems.push(binItem);
+  saveBinItems(binItems);
+};
+
+export const removeFromBin = (id: string): void => {
+  const binItems = getBinItems();
+  const updatedItems = binItems.filter(item => item.id !== id);
+  saveBinItems(updatedItems);
+};
+
+export const cleanupExpiredBinItems = (): void => {
+  const binItems = getBinItems();
+  const now = new Date();
+  const validItems = binItems.filter(item => new Date(item.restoreDeadline) > now);
+  saveBinItems(validItems);
 };
 
 // Default rates

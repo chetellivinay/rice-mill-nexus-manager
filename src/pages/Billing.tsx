@@ -18,20 +18,51 @@ const Billing = () => {
     village: '',
     phone: '',
     millingRate: rates.milling[0],
-    millingQuantity: 0,
-    powderQuantity: 0,
-    bigBagsQuantity: 0,
-    smallBagsQuantity: 0,
-    branBagsQuantity: 0,
-    unloadingQuantity: 0,
-    loadingQuantity: 0,
-    nukaluQuantity: 0,
-    extraQuantity: 0,
-    paidAmount: 0
+    millingQuantity: '',
+    powderQuantity: '',
+    bigBagsQuantity: '',
+    smallBagsQuantity: '',
+    branBagsQuantity: '',
+    unloadingQuantity: '',
+    loadingQuantity: '',
+    nukaluQuantity: '',
+    extraQuantity: '',
+    paidAmount: ''
   });
 
-  const calculateItemTotal = (rate: number, quantity: number) => {
-    return rate * quantity;
+  useEffect(() => {
+    // Check if customer data was passed from queue
+    const billingCustomerData = localStorage.getItem('billingCustomerData');
+    if (billingCustomerData) {
+      const customerData = JSON.parse(billingCustomerData);
+      setFormData(prev => ({
+        ...prev,
+        name: customerData.name,
+        village: customerData.village,
+        phone: customerData.phoneNumber
+      }));
+      localStorage.removeItem('billingCustomerData');
+    }
+  }, []);
+
+  const handlePhoneInput = (value: string) => {
+    const numericValue = value.replace(/\D/g, '').slice(0, 10);
+    setFormData({...formData, phone: numericValue});
+  };
+
+  const handleRateChange = (item: string, value: number) => {
+    const updatedRates = { ...rates, [item]: value };
+    setRates(updatedRates);
+    saveRates(updatedRates);
+  };
+
+  const handleQuantityChange = (field: string, value: string) => {
+    setFormData({...formData, [field]: value});
+  };
+
+  const calculateItemTotal = (rate: number, quantity: string) => {
+    const qty = parseFloat(quantity) || 0;
+    return rate * qty;
   };
 
   const calculateTotalAmount = () => {
@@ -51,7 +82,8 @@ const Billing = () => {
   };
 
   const totalAmount = calculateTotalAmount();
-  const dueAmount = totalAmount - formData.paidAmount;
+  const paidAmount = parseFloat(formData.paidAmount) || 0;
+  const dueAmount = totalAmount - paidAmount;
 
   const handleSave = () => {
     if (!formData.name || !formData.village) {
@@ -62,6 +94,16 @@ const Billing = () => {
       });
       return;
     }
+    
+    if (formData.phone && formData.phone.length !== 10) {
+      toast({
+        title: "Error",
+        description: "Phone number must be exactly 10 digits",
+        variant: "destructive"
+      });
+      return;
+    }
+    
     setShowConfirmDialog(true);
   };
 
@@ -72,18 +114,18 @@ const Billing = () => {
       village: formData.village,
       phone: formData.phone,
       items: [
-        { name: 'Milling', rate: formData.millingRate, quantity: formData.millingQuantity, total: calculateItemTotal(formData.millingRate, formData.millingQuantity) },
-        { name: 'Powder', rate: rates.powder, quantity: formData.powderQuantity, total: calculateItemTotal(rates.powder, formData.powderQuantity) },
-        { name: 'Big Bags', rate: rates.bigBags, quantity: formData.bigBagsQuantity, total: calculateItemTotal(rates.bigBags, formData.bigBagsQuantity) },
-        { name: 'Small Bags', rate: rates.smallBags, quantity: formData.smallBagsQuantity, total: calculateItemTotal(rates.smallBags, formData.smallBagsQuantity) },
-        { name: 'Bran Bags', rate: rates.branBags, quantity: formData.branBagsQuantity, total: calculateItemTotal(rates.branBags, formData.branBagsQuantity) },
-        { name: 'Unloading', rate: rates.unloading, quantity: formData.unloadingQuantity, total: calculateItemTotal(rates.unloading, formData.unloadingQuantity) },
-        { name: 'Loading', rate: rates.loading, quantity: formData.loadingQuantity, total: calculateItemTotal(rates.loading, formData.loadingQuantity) },
-        { name: 'Nukalu', rate: rates.nukalu, quantity: formData.nukaluQuantity, total: calculateItemTotal(rates.nukalu, formData.nukaluQuantity) },
-        { name: 'Extra Charges', rate: rates.extra, quantity: formData.extraQuantity, total: calculateItemTotal(rates.extra, formData.extraQuantity) }
+        { name: 'Milling', rate: formData.millingRate, quantity: parseFloat(formData.millingQuantity) || 0, total: calculateItemTotal(formData.millingRate, formData.millingQuantity) },
+        { name: 'Powder', rate: rates.powder, quantity: parseFloat(formData.powderQuantity) || 0, total: calculateItemTotal(rates.powder, formData.powderQuantity) },
+        { name: 'Big Bags', rate: rates.bigBags, quantity: parseFloat(formData.bigBagsQuantity) || 0, total: calculateItemTotal(rates.bigBags, formData.bigBagsQuantity) },
+        { name: 'Small Bags', rate: rates.smallBags, quantity: parseFloat(formData.smallBagsQuantity) || 0, total: calculateItemTotal(rates.smallBags, formData.smallBagsQuantity) },
+        { name: 'Bran Bags', rate: rates.branBags, quantity: parseFloat(formData.branBagsQuantity) || 0, total: calculateItemTotal(rates.branBags, formData.branBagsQuantity) },
+        { name: 'Unloading', rate: rates.unloading, quantity: parseFloat(formData.unloadingQuantity) || 0, total: calculateItemTotal(rates.unloading, formData.unloadingQuantity) },
+        { name: 'Loading', rate: rates.loading, quantity: parseFloat(formData.loadingQuantity) || 0, total: calculateItemTotal(rates.loading, formData.loadingQuantity) },
+        { name: 'Nukalu', rate: rates.nukalu, quantity: parseFloat(formData.nukaluQuantity) || 0, total: calculateItemTotal(rates.nukalu, formData.nukaluQuantity) },
+        { name: 'Extra Charges', rate: rates.extra, quantity: parseFloat(formData.extraQuantity) || 0, total: calculateItemTotal(rates.extra, formData.extraQuantity) }
       ].filter(item => item.quantity > 0),
       totalAmount,
-      paidAmount: formData.paidAmount,
+      paidAmount,
       dueAmount,
       date: new Date().toLocaleDateString(),
       time: new Date().toLocaleTimeString()
@@ -97,16 +139,16 @@ const Billing = () => {
     const inventory = getInventory();
     const updatedInventory = inventory.map(item => {
       if (item.name === 'Powders') {
-        return { ...item, count: Math.max(0, item.count - formData.powderQuantity) };
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.powderQuantity) || 0)) };
       }
       if (item.name === 'Small Bags') {
-        return { ...item, count: Math.max(0, item.count - formData.smallBagsQuantity) };
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.smallBagsQuantity) || 0)) };
       }
       if (item.name === 'Big Bags') {
-        return { ...item, count: Math.max(0, item.count - formData.bigBagsQuantity) };
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.bigBagsQuantity) || 0)) };
       }
       if (item.name === 'Bran Bags') {
-        return { ...item, count: Math.max(0, item.count - formData.branBagsQuantity) };
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.branBagsQuantity) || 0)) };
       }
       return item;
     });
@@ -118,16 +160,16 @@ const Billing = () => {
       village: '',
       phone: '',
       millingRate: rates.milling[0],
-      millingQuantity: 0,
-      powderQuantity: 0,
-      bigBagsQuantity: 0,
-      smallBagsQuantity: 0,
-      branBagsQuantity: 0,
-      unloadingQuantity: 0,
-      loadingQuantity: 0,
-      nukaluQuantity: 0,
-      extraQuantity: 0,
-      paidAmount: 0
+      millingQuantity: '',
+      powderQuantity: '',
+      bigBagsQuantity: '',
+      smallBagsQuantity: '',
+      branBagsQuantity: '',
+      unloadingQuantity: '',
+      loadingQuantity: '',
+      nukaluQuantity: '',
+      extraQuantity: '',
+      paidAmount: ''
     });
 
     setShowConfirmDialog(false);
@@ -168,13 +210,13 @@ const Billing = () => {
                 />
               </div>
               <div>
-                <Label htmlFor="phone">Phone Number</Label>
+                <Label htmlFor="phone">Phone Number (10 digits)</Label>
                 <Input
                   id="phone"
-                  type="tel"
-                  maxLength={10}
                   value={formData.phone}
-                  onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                  onChange={(e) => handlePhoneInput(e.target.value)}
+                  placeholder="Enter 10-digit phone number"
+                  maxLength={10}
                 />
               </div>
             </div>
@@ -211,9 +253,12 @@ const Billing = () => {
                       <Input
                         type="number"
                         min="0"
-                        max="99999"
+                        step="0.01"
                         value={formData.millingQuantity}
-                        onChange={(e) => setFormData({...formData, millingQuantity: parseInt(e.target.value) || 0})}
+                        onChange={(e) => handleQuantityChange('millingQuantity', e.target.value)}
+                        placeholder="0"
+                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        style={{ MozAppearance: 'textfield' }}
                       />
                     </td>
                     <td className="border border-gray-300 p-3">
@@ -221,34 +266,41 @@ const Billing = () => {
                     </td>
                   </tr>
                   
-                  {/* Similar rows for other items */}
                   {[
-                    { name: 'Powder', rate: rates.powder, quantity: 'powderQuantity' },
-                    { name: 'Big Bags', rate: rates.bigBags, quantity: 'bigBagsQuantity' },
-                    { name: 'Small Bags', rate: rates.smallBags, quantity: 'smallBagsQuantity' },
-                    { name: 'Bran Bags', rate: rates.branBags, quantity: 'branBagsQuantity' },
-                    { name: 'Unloading', rate: rates.unloading, quantity: 'unloadingQuantity' },
-                    { name: 'Loading', rate: rates.loading, quantity: 'loadingQuantity' },
-                    { name: 'Nukalu', rate: rates.nukalu, quantity: 'nukaluQuantity' },
-                    { name: 'Extra Charges', rate: rates.extra, quantity: 'extraQuantity' }
+                    { name: 'Powder', rateKey: 'powder', quantityKey: 'powderQuantity' },
+                    { name: 'Big Bags', rateKey: 'bigBags', quantityKey: 'bigBagsQuantity' },
+                    { name: 'Small Bags', rateKey: 'smallBags', quantityKey: 'smallBagsQuantity' },
+                    { name: 'Bran Bags', rateKey: 'branBags', quantityKey: 'branBagsQuantity' },
+                    { name: 'Unloading', rateKey: 'unloading', quantityKey: 'unloadingQuantity' },
+                    { name: 'Loading', rateKey: 'loading', quantityKey: 'loadingQuantity' },
+                    { name: 'Nukalu', rateKey: 'nukalu', quantityKey: 'nukaluQuantity' },
+                    { name: 'Extra Charges', rateKey: 'extra', quantityKey: 'extraQuantity' }
                   ].map((item) => (
                     <tr key={item.name}>
                       <td className="border border-gray-300 p-3">{item.name}</td>
-                      <td className="border border-gray-300 p-3">{item.rate.toFixed(2)}</td>
                       <td className="border border-gray-300 p-3">
                         <Input
                           type="number"
                           min="0"
-                          max="99999"
-                          value={formData[item.quantity as keyof typeof formData] as number}
-                          onChange={(e) => setFormData({
-                            ...formData,
-                            [item.quantity]: parseInt(e.target.value) || 0
-                          })}
+                          step="0.01"
+                          value={rates[item.rateKey as keyof typeof rates]}
+                          onChange={(e) => handleRateChange(item.rateKey, parseFloat(e.target.value) || 0)}
                         />
                       </td>
                       <td className="border border-gray-300 p-3">
-                        {calculateItemTotal(item.rate, formData[item.quantity as keyof typeof formData] as number).toFixed(2)}
+                        <Input
+                          type="number"
+                          min="0"
+                          step={item.name === 'Loading' ? "0.01" : "1"}
+                          value={formData[item.quantityKey as keyof typeof formData] as string}
+                          onChange={(e) => handleQuantityChange(item.quantityKey, e.target.value)}
+                          placeholder="0"
+                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          style={{ MozAppearance: 'textfield' }}
+                        />
+                      </td>
+                      <td className="border border-gray-300 p-3">
+                        {calculateItemTotal(rates[item.rateKey as keyof typeof rates] as number, formData[item.quantityKey as keyof typeof formData] as string).toFixed(2)}
                       </td>
                     </tr>
                   ))}
@@ -267,8 +319,10 @@ const Billing = () => {
                     id="paidAmount"
                     type="number"
                     min="0"
+                    step="0.01"
                     value={formData.paidAmount}
-                    onChange={(e) => setFormData({...formData, paidAmount: parseFloat(e.target.value) || 0})}
+                    onChange={(e) => setFormData({...formData, paidAmount: e.target.value})}
+                    placeholder="0"
                   />
                 </div>
                 <div>
