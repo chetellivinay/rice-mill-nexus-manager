@@ -113,7 +113,7 @@ const QueueLine = () => {
                     <SelectItem value="all">All Loads</SelectItem>
                     <SelectItem value="low">Low (≤10 bags)</SelectItem>
                     <SelectItem value="medium">Medium (11-50 bags)</SelectItem>
-                    <SelectItem value="high">High (>50 bags)</SelectItem>
+                    <SelectItem value="high">High ({'>'}50 bags)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
