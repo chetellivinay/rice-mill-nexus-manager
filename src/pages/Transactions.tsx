@@ -38,6 +38,20 @@ const Transactions = () => {
     return showDueOnly ? (matchesSearch && transaction.dueAmount > 0) : matchesSearch;
   });
 
+  // Parse date properly and sort with most recent first
+  const parseTransactionDate = (dateString: string) => {
+    // Handle different date formats
+    const parts = dateString.split('/');
+    if (parts.length === 3) {
+      // Assuming MM/DD/YYYY or DD/MM/YYYY format
+      const month = parseInt(parts[0]) - 1; // Month is 0-indexed
+      const day = parseInt(parts[1]);
+      const year = parseInt(parts[2]);
+      return new Date(year, month, day);
+    }
+    return new Date(dateString);
+  };
+
   // Group transactions by date with most recent dates first
   const groupedTransactions = filteredTransactions.reduce((groups, transaction) => {
     const date = transaction.date;
@@ -50,8 +64,8 @@ const Transactions = () => {
 
   // Sort dates in descending order (most recent first)
   const sortedDates = Object.keys(groupedTransactions).sort((a, b) => {
-    const dateA = new Date(a);
-    const dateB = new Date(b);
+    const dateA = parseTransactionDate(a);
+    const dateB = parseTransactionDate(b);
     return dateB.getTime() - dateA.getTime();
   });
 
@@ -152,12 +166,19 @@ const Transactions = () => {
   };
 
   const getDayName = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseTransactionDate(dateString);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
     return date.toLocaleDateString('en-US', { weekday: 'long' });
   };
 
   const getDateDisplayText = (dateString: string) => {
-    const date = new Date(dateString);
+    const date = parseTransactionDate(dateString);
+    if (isNaN(date.getTime())) {
+      return dateString; // Return original string if date is invalid
+    }
+    
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
@@ -235,97 +256,100 @@ const Transactions = () => {
 
         {/* Transactions Grouped by Date (Most Recent First) */}
         <div className="space-y-6">
-          {sortedDates.map((date) => (
-            <Card key={date}>
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <span>{getDateDisplayText(date)}</span>
-                  <Badge variant="secondary">{getDayName(date)}</Badge>
-                  <Badge variant="outline">{groupedTransactions[date].length} transactions</Badge>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Customer Name</TableHead>
-                        <TableHead>Village</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Due</TableHead>
-                        {(showHamaliCalculator || showTodayCalculator) && (
-                          <TableHead>Select</TableHead>
-                        )}
-                        <TableHead>Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {groupedTransactions[date]
-                        .sort((a, b) => b.time.localeCompare(a.time))
-                        .map((transaction) => (
-                        <TableRow key={transaction.id}>
-                          <TableCell>{transaction.time}</TableCell>
-                          <TableCell className="font-medium">{transaction.name}</TableCell>
-                          <TableCell>{transaction.village}</TableCell>
-                          <TableCell>₹{transaction.totalAmount.toFixed(2)}</TableCell>
-                          <TableCell>
-                            {transaction.dueAmount > 0 && (
-                              <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                            )}
-                          </TableCell>
+          {sortedDates.map((date) => {
+            const dayName = getDayName(date);
+            return (
+              <Card key={date}>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <span>{getDateDisplayText(date)}</span>
+                    {dayName && <Badge variant="secondary">{dayName}</Badge>}
+                    <Badge variant="outline">{groupedTransactions[date].length} transactions</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Customer Name</TableHead>
+                          <TableHead>Village</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Due</TableHead>
                           {(showHamaliCalculator || showTodayCalculator) && (
+                            <TableHead>Select</TableHead>
+                          )}
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {groupedTransactions[date]
+                          .sort((a, b) => b.time.localeCompare(a.time))
+                          .map((transaction) => (
+                          <TableRow key={transaction.id}>
+                            <TableCell>{transaction.time}</TableCell>
+                            <TableCell className="font-medium">{transaction.name}</TableCell>
+                            <TableCell>{transaction.village}</TableCell>
+                            <TableCell>₹{transaction.totalAmount.toFixed(2)}</TableCell>
+                            <TableCell>
+                              {transaction.dueAmount > 0 && (
+                                <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                              )}
+                            </TableCell>
+                            {(showHamaliCalculator || showTodayCalculator) && (
+                              <TableCell>
+                                <div className="flex space-x-2">
+                                  {showHamaliCalculator && (
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        checked={selectedForHamali.includes(transaction.id)}
+                                        onCheckedChange={() => toggleHamaliSelection(transaction.id)}
+                                      />
+                                      <span className="text-sm">Hamali</span>
+                                    </div>
+                                  )}
+                                  {showTodayCalculator && (
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        checked={selectedForToday.includes(transaction.id)}
+                                        onCheckedChange={() => toggleTodaySelection(transaction.id)}
+                                      />
+                                      <span className="text-sm">Today</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            )}
                             <TableCell>
                               <div className="flex space-x-2">
-                                {showHamaliCalculator && (
-                                  <div className="flex items-center space-x-2">
-                                    <Checkbox
-                                      checked={selectedForHamali.includes(transaction.id)}
-                                      onCheckedChange={() => toggleHamaliSelection(transaction.id)}
-                                    />
-                                    <span className="text-sm">Hamali</span>
-                                  </div>
-                                )}
-                                {showTodayCalculator && (
-                                  <div className="flex items-center space-x-2">
-                                    <Checkbox
-                                      checked={selectedForToday.includes(transaction.id)}
-                                      onCheckedChange={() => toggleTodaySelection(transaction.id)}
-                                    />
-                                    <span className="text-sm">Today</span>
-                                  </div>
-                                )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => viewTransaction(transaction)}
+                                >
+                                  <Eye size={16} className="mr-1" />
+                                  View
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteClick(transaction.id)}
+                                >
+                                  <Trash2 size={16} className="mr-1" />
+                                  Delete
+                                </Button>
                               </div>
                             </TableCell>
-                          )}
-                          <TableCell>
-                            <div className="flex space-x-2">
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => viewTransaction(transaction)}
-                              >
-                                <Eye size={16} className="mr-1" />
-                                View
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleDeleteClick(transaction.id)}
-                              >
-                                <Trash2 size={16} className="mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {filteredTransactions.length === 0 && (

@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import Navigation from '@/components/Navigation';
@@ -15,7 +16,9 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 const Billing = () => {
   const [rates, setRates] = useState(getDefaultRates());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showDueDialog, setShowDueDialog] = useState(false);
   const [dueInfo, setDueInfo] = useState<any>(null);
+  const [includeOldDue, setIncludeOldDue] = useState(false);
   const [villages] = useState(getUniqueVillages());
   const [formData, setFormData] = useState({
     name: '',
@@ -96,8 +99,11 @@ const Billing = () => {
     const extraTotal = calculateItemTotal(rates.extra, formData.extraQuantity);
 
     // Nukalu is subtracted from total as per requirement
-    return millingTotal + powderTotal + bigBagsTotal + smallBagsTotal + 
+    const currentBillTotal = millingTotal + powderTotal + bigBagsTotal + smallBagsTotal + 
            branBagsTotal + unloadingTotal + loadingTotal + extraTotal - nukaluTotal;
+    
+    // Add previous due if selected
+    return currentBillTotal + (includeOldDue && dueInfo ? dueInfo.totalDue : 0);
   };
 
   const totalAmount = calculateTotalAmount();
@@ -122,11 +128,33 @@ const Billing = () => {
       });
       return;
     }
+
+    // If there are dues and user hasn't decided, show due dialog
+    if (dueInfo && !showDueDialog) {
+      setShowDueDialog(true);
+      return;
+    }
     
     setShowConfirmDialog(true);
   };
 
+  const clearCustomerDues = (phoneNumber: string) => {
+    if (!phoneNumber) return;
+    
+    const transactions = getTransactions();
+    const updatedTransactions = transactions.map(transaction => {
+      if (transaction.phone === phoneNumber && transaction.dueAmount > 0) {
+        return { ...transaction, dueAmount: 0 };
+      }
+      return transaction;
+    });
+    
+    saveTransactions(updatedTransactions);
+  };
+
   const confirmSave = () => {
+    const currentBillTotal = calculateTotalAmount() - (includeOldDue && dueInfo ? dueInfo.totalDue : 0);
+    
     const transaction: Transaction = {
       id: Date.now().toString(),
       name: formData.name,
@@ -143,9 +171,9 @@ const Billing = () => {
         { name: 'Nukalu', rate: rates.nukalu, quantity: parseFloat(formData.nukaluQuantity) || 0, total: calculateItemTotal(rates.nukalu, formData.nukaluQuantity) },
         { name: 'Extra Charges', rate: rates.extra, quantity: parseFloat(formData.extraQuantity) || 0, total: calculateItemTotal(rates.extra, formData.extraQuantity) }
       ].filter(item => item.quantity > 0),
-      totalAmount,
+      totalAmount: includeOldDue ? totalAmount : currentBillTotal,
       paidAmount,
-      dueAmount,
+      dueAmount: includeOldDue ? dueAmount : (currentBillTotal - paidAmount),
       date: new Date().toLocaleDateString(),
       time: new Date().toLocaleTimeString()
     };
@@ -153,6 +181,15 @@ const Billing = () => {
     const transactions = getTransactions();
     transactions.push(transaction);
     saveTransactions(transactions);
+
+    // If old dues were included and fully paid, clear customer dues
+    if (includeOldDue && dueInfo && paidAmount >= totalAmount) {
+      clearCustomerDues(formData.phone);
+      toast({
+        title: "Dues Cleared",
+        description: "Customer's previous dues have been cleared"
+      });
+    }
 
     // Update inventory
     const inventory = getInventory();
@@ -192,7 +229,10 @@ const Billing = () => {
     });
 
     setDueInfo(null);
+    setIncludeOldDue(false);
     setShowConfirmDialog(false);
+    setShowDueDialog(false);
+    
     toast({
       title: "Success",
       description: "Transaction saved successfully",
@@ -257,6 +297,15 @@ const Billing = () => {
                 />
               </div>
             </div>
+
+            {/* Previous Due Inclusion Option */}
+            {dueInfo && includeOldDue && (
+              <Alert className="mb-4 border-blue-200 bg-blue-50">
+                <AlertDescription className="text-blue-800">
+                  Previous due of ₹{dueInfo.totalDue.toFixed(2)} is included in the total amount.
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full border-collapse border border-gray-300">
@@ -349,6 +398,11 @@ const Billing = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <strong>Total Amount: ₹{totalAmount.toFixed(2)}</strong>
+                  {includeOldDue && dueInfo && (
+                    <div className="text-sm text-gray-600">
+                      (Includes ₹{dueInfo.totalDue.toFixed(2)} previous due)
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="paidAmount">Paid Amount:</Label>
@@ -376,12 +430,46 @@ const Billing = () => {
           </CardContent>
         </Card>
 
+        {/* Due Payment Dialog */}
+        <AlertDialog open={showDueDialog} onOpenChange={setShowDueDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Previous Due Found</AlertDialogTitle>
+              <AlertDialogDescription>
+                This customer has a previous due of ₹{dueInfo?.totalDue.toFixed(2)}. 
+                Would you like to include this in the current bill?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setIncludeOldDue(false);
+                setShowDueDialog(false);
+                setShowConfirmDialog(true);
+              }}>
+                No, Bill Separately
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => {
+                setIncludeOldDue(true);
+                setShowDueDialog(false);
+                setShowConfirmDialog(true);
+              }}>
+                Yes, Include Previous Due
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Confirm Save</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to save this transaction? This action cannot be undone.
+                Are you sure you want to save this transaction? 
+                {includeOldDue && dueInfo && paidAmount >= totalAmount && (
+                  <div className="mt-2 p-2 bg-green-100 rounded">
+                    <strong>Note:</strong> Customer's previous dues will be cleared as they have paid the full amount.
+                  </div>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
