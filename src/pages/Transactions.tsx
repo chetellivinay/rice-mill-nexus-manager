@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -58,16 +59,13 @@ const Transactions = () => {
     const inventory = getInventory();
     
     transaction.items.forEach(item => {
-      const inventoryItem = inventory.find(inv => {
-        if (item.name === 'Powders') return inv.name === 'Powders';
-        if (item.name === 'Small Bags') return inv.name === 'Small Bags';
-        if (item.name === 'Big Bags') return inv.name === 'Big Bags';
-        if (item.name === 'Bran Bags') return inv.name === 'Bran Bags';
-        return false;
-      });
+      const inventoryItem = inventory.find(inv => inv.name === item.name);
       
       if (inventoryItem) {
         inventoryItem.count += item.quantity;
+        console.log(`Restored ${item.quantity} ${item.name} to inventory`);
+      } else {
+        console.log(`Inventory item not found for: ${item.name}`);
       }
     });
     
@@ -136,19 +134,15 @@ const Transactions = () => {
   };
 
   const toggleHamaliSelection = (id: string) => {
-    if (selectedForHamali.includes(id)) {
-      setSelectedForHamali(selectedForHamali.filter(txId => txId !== id));
-    } else {
-      setSelectedForHamali([...selectedForHamali, id]);
-    }
+    setSelectedForHamali(prev => 
+      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
+    );
   };
 
   const toggleTodaySelection = (id: string) => {
-    if (selectedForToday.includes(id)) {
-      setSelectedForToday(selectedForToday.filter(txId => txId !== id));
-    } else {
-      setSelectedForToday([...selectedForToday, id]);
-    }
+    setSelectedForToday(prev => 
+      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
+    );
   };
 
   const totalHamali = calculateHamali();
@@ -292,7 +286,7 @@ const Transactions = () => {
                                 onClick={() => handleDeleteClick(transaction.id)}
                               >
                                 <Trash2 size={16} className="mr-1" />
-                                Delete Bin
+                                Delete
                               </Button>
                             </div>
                           </TableCell>
