@@ -1,15 +1,17 @@
 
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, ArrowUpDown } from 'lucide-react';
+import { Search, Filter, ArrowUpDown, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import Navigation from '@/components/Navigation';
 import { QueueCustomer, saveQueueCustomers, getQueueCustomers } from '@/utils/localStorage';
+import { checkDuesByPhone, getUniqueVillages } from '@/utils/duesChecker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from '@/hooks/use-toast';
 
 const QueueLine = () => {
@@ -18,6 +20,8 @@ const QueueLine = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loadFilter, setLoadFilter] = useState('all');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [dueInfo, setDueInfo] = useState<any>(null);
+  const [villages] = useState(getUniqueVillages());
   const [formData, setFormData] = useState({
     name: '',
     phoneNumber: '',
@@ -34,6 +38,14 @@ const QueueLine = () => {
   const handlePhoneInput = (value: string, field: 'phoneNumber' | 'driverPhone') => {
     const numericValue = value.replace(/\D/g, '').slice(0, 10);
     setFormData({...formData, [field]: numericValue});
+    
+    // Check for dues when phone number is complete
+    if (field === 'phoneNumber' && numericValue.length === 10) {
+      const dues = checkDuesByPhone(numericValue);
+      setDueInfo(dues);
+    } else if (field === 'phoneNumber') {
+      setDueInfo(null);
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -71,6 +83,7 @@ const QueueLine = () => {
       loadBrought: '',
       village: ''
     });
+    setDueInfo(null);
     
     toast({
       title: "Success",
@@ -90,7 +103,6 @@ const QueueLine = () => {
   };
 
   const createBill = (customer: QueueCustomer) => {
-    // Store customer data for billing page
     localStorage.setItem('billingCustomerData', JSON.stringify({
       name: customer.name,
       phoneNumber: customer.phoneNumber,
@@ -118,11 +130,7 @@ const QueueLine = () => {
       return matchesSearch;
     })
     .sort((a, b) => {
-      if (sortOrder === 'desc') {
-        return b.loadBrought - a.loadBrought;
-      } else {
-        return a.loadBrought - b.loadBrought;
-      }
+      return sortOrder === 'desc' ? b.loadBrought - a.loadBrought : a.loadBrought - b.loadBrought;
     });
 
   return (
@@ -133,12 +141,23 @@ const QueueLine = () => {
           <h1 className="text-3xl font-bold text-gray-800">Queue Line Management</h1>
         </div>
 
-        {/* Customer Form - Always Visible */}
+        {/* Customer Form */}
         <Card className="mb-6">
           <CardHeader>
             <CardTitle>Add New Customer</CardTitle>
           </CardHeader>
           <CardContent>
+            {dueInfo && (
+              <Alert className="mb-4 border-orange-200 bg-orange-50">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>Previous Dues Found:</strong> This phone number has ₹{dueInfo.totalDue.toFixed(2)} 
+                  in outstanding dues from {dueInfo.transactionCount} transaction(s). 
+                  Last transaction: {dueInfo.lastTransactionDate}
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="name">Name *</Label>
@@ -167,7 +186,13 @@ const QueueLine = () => {
                   required
                   value={formData.village}
                   onChange={(e) => setFormData({...formData, village: e.target.value})}
+                  list="villages"
                 />
+                <datalist id="villages">
+                  {villages.map((village) => (
+                    <option key={village} value={village} />
+                  ))}
+                </datalist>
               </div>
               <div>
                 <Label htmlFor="driverName">Driver's Name (Optional)</Label>
@@ -337,3 +362,4 @@ const QueueLine = () => {
 };
 
 export default QueueLine;
+

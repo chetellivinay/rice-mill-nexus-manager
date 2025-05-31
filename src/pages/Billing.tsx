@@ -1,18 +1,22 @@
-
 import React, { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Transaction, saveTransactions, getTransactions, getInventory, saveInventory, getDefaultRates, saveRates } from '@/utils/localStorage';
+import { checkDuesByPhone, getUniqueVillages } from '@/utils/duesChecker';
 import { toast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 const Billing = () => {
   const [rates, setRates] = useState(getDefaultRates());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [dueInfo, setDueInfo] = useState<any>(null);
+  const [villages] = useState(getUniqueVillages());
   const [formData, setFormData] = useState({
     name: '',
     village: '',
@@ -41,6 +45,13 @@ const Billing = () => {
         village: customerData.village,
         phone: customerData.phoneNumber
       }));
+      
+      // Check for dues if phone number exists
+      if (customerData.phoneNumber) {
+        const dues = checkDuesByPhone(customerData.phoneNumber);
+        setDueInfo(dues);
+      }
+      
       localStorage.removeItem('billingCustomerData');
     }
   }, []);
@@ -48,6 +59,14 @@ const Billing = () => {
   const handlePhoneInput = (value: string) => {
     const numericValue = value.replace(/\D/g, '').slice(0, 10);
     setFormData({...formData, phone: numericValue});
+    
+    // Check for dues when phone number is complete
+    if (numericValue.length === 10) {
+      const dues = checkDuesByPhone(numericValue);
+      setDueInfo(dues);
+    } else {
+      setDueInfo(null);
+    }
   };
 
   const handleRateChange = (item: string, value: number) => {
@@ -172,6 +191,7 @@ const Billing = () => {
       paidAmount: ''
     });
 
+    setDueInfo(null);
     setShowConfirmDialog(false);
     toast({
       title: "Success",
@@ -190,6 +210,17 @@ const Billing = () => {
             <CardTitle>Customer Data Entry</CardTitle>
           </CardHeader>
           <CardContent>
+            {dueInfo && (
+              <Alert className="mb-4 border-orange-200 bg-orange-50">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>Previous Dues Found:</strong> This phone number has ₹{dueInfo.totalDue.toFixed(2)} 
+                  in outstanding dues from {dueInfo.transactionCount} transaction(s). 
+                  Last transaction: {dueInfo.lastTransactionDate}
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div>
                 <Label htmlFor="name">Name *</Label>
@@ -207,7 +238,13 @@ const Billing = () => {
                   required
                   value={formData.village}
                   onChange={(e) => setFormData({...formData, village: e.target.value})}
+                  list="villages"
                 />
+                <datalist id="villages">
+                  {villages.map((village) => (
+                    <option key={village} value={village} />
+                  ))}
+                </datalist>
               </div>
               <div>
                 <Label htmlFor="phone">Phone Number (10 digits)</Label>

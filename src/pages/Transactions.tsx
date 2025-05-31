@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -35,11 +36,7 @@ const Transactions = () => {
                          transaction.village.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          transaction.phone.includes(searchTerm);
     
-    if (showDueOnly) {
-      return matchesSearch && transaction.dueAmount > 0;
-    }
-    
-    return matchesSearch;
+    return showDueOnly ? (matchesSearch && transaction.dueAmount > 0) : matchesSearch;
   });
 
   // Group transactions by date
@@ -57,23 +54,54 @@ const Transactions = () => {
 
   const restoreInventory = (transaction: Transaction) => {
     const inventory = getInventory();
+    let restoredItems = 0;
     
     transaction.items.forEach(item => {
-      const inventoryItem = inventory.find(inv => inv.name === item.name);
+      // Map transaction item names to inventory item names
+      let inventoryItemName = '';
       
-      if (inventoryItem) {
+      switch (item.name) {
+        case 'Powder':
+          inventoryItemName = 'Powders';
+          break;
+        case 'Small Bags':
+          inventoryItemName = 'Small Bags';
+          break;
+        case 'Big Bags':
+          inventoryItemName = 'Big Bags';
+          break;
+        case 'Bran Bags':
+          inventoryItemName = 'Bran Bags';
+          break;
+        default:
+          // For other items, try exact match first
+          inventoryItemName = item.name;
+      }
+      
+      const inventoryItem = inventory.find(inv => inv.name === inventoryItemName);
+      
+      if (inventoryItem && item.quantity > 0) {
         inventoryItem.count += item.quantity;
-        console.log(`Restored ${item.quantity} ${item.name} to inventory`);
+        restoredItems++;
+        console.log(`Successfully restored ${item.quantity} ${inventoryItemName} to inventory`);
       } else {
-        console.log(`Inventory item not found for: ${item.name}`);
+        console.log(`Could not restore ${item.name} - inventory item not found or quantity is 0`);
       }
     });
     
-    saveInventory(inventory);
-    toast({
-      title: "Inventory Restored",
-      description: "Inventory items have been added back"
-    });
+    if (restoredItems > 0) {
+      saveInventory(inventory);
+      toast({
+        title: "Inventory Restored",
+        description: `${restoredItems} inventory items have been restored`
+      });
+    } else {
+      toast({
+        title: "No Items Restored",
+        description: "No eligible inventory items found to restore",
+        variant: "destructive"
+      });
+    }
   };
 
   const deleteTransaction = (id: string, shouldRestoreInventory: boolean = false) => {
@@ -112,20 +140,16 @@ const Transactions = () => {
 
   const calculateHamali = () => {
     const selectedTransactions = transactions.filter(t => selectedForHamali.includes(t.id));
-    const totalHamali = selectedTransactions.reduce((sum, transaction) => {
+    return selectedTransactions.reduce((sum, transaction) => {
       const loadingItem = transaction.items.find(item => item.name === 'Loading');
       const unloadingItem = transaction.items.find(item => item.name === 'Unloading');
       return sum + (loadingItem?.total || 0) + (unloadingItem?.total || 0);
     }, 0);
-    
-    return totalHamali;
   };
 
   const calculateTodayTotal = () => {
     const selectedTransactions = transactions.filter(t => selectedForToday.includes(t.id));
-    const totalAmount = selectedTransactions.reduce((sum, transaction) => sum + transaction.totalAmount, 0);
-    
-    return totalAmount;
+    return selectedTransactions.reduce((sum, transaction) => sum + transaction.totalAmount, 0);
   };
 
   const viewTransaction = (transaction: Transaction) => {
@@ -145,12 +169,16 @@ const Transactions = () => {
     );
   };
 
-  const totalHamali = calculateHamali();
-  const todayTotal = calculateTodayTotal();
-
   const getDayName = (dateString: string) => {
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { weekday: 'long' });
+  };
+
+  const resetCalculators = () => {
+    setShowTodayCalculator(false);
+    setShowHamaliCalculator(false);
+    setSelectedForToday([]);
+    setSelectedForHamali([]);
   };
 
   return (
@@ -179,10 +207,7 @@ const Transactions = () => {
                 onClick={() => {
                   setShowDueOnly(!showDueOnly);
                   if (!showDueOnly) {
-                    setShowTodayCalculator(false);
-                    setShowHamaliCalculator(false);
-                    setSelectedForToday([]);
-                    setSelectedForHamali([]);
+                    resetCalculators();
                   }
                 }}
               >
@@ -312,7 +337,7 @@ const Transactions = () => {
             <CardContent className="p-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-800">
-                  Total Hamali: ₹{totalHamali.toFixed(2)}
+                  Total Hamali: ₹{calculateHamali().toFixed(2)}
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   Selected {selectedForHamali.length} transactions
@@ -327,7 +352,7 @@ const Transactions = () => {
             <CardContent className="p-4">
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-800">
-                  Total Income: ₹{todayTotal.toFixed(2)}
+                  Total Income: ₹{calculateTodayTotal().toFixed(2)}
                 </div>
                 <div className="text-sm text-gray-600 mt-1">
                   Selected {selectedForToday.length} transactions
@@ -445,3 +470,4 @@ const Transactions = () => {
 };
 
 export default Transactions;
+
