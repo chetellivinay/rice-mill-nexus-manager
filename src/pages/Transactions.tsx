@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -39,7 +38,7 @@ const Transactions = () => {
     return showDueOnly ? (matchesSearch && transaction.dueAmount > 0) : matchesSearch;
   });
 
-  // Group transactions by date
+  // Group transactions by date with most recent dates first
   const groupedTransactions = filteredTransactions.reduce((groups, transaction) => {
     const date = transaction.date;
     if (!groups[date]) {
@@ -49,41 +48,24 @@ const Transactions = () => {
     return groups;
   }, {} as Record<string, Transaction[]>);
 
-  // Sort dates in descending order
-  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  // Sort dates in descending order (most recent first)
+  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => {
+    const dateA = new Date(a);
+    const dateB = new Date(b);
+    return dateB.getTime() - dateA.getTime();
+  });
 
   const restoreInventory = (transaction: Transaction) => {
     const inventory = getInventory();
     let restoredItems = 0;
     
     transaction.items.forEach(item => {
-      // Map transaction item names to inventory item names
-      let inventoryItemName = '';
-      
-      switch (item.name) {
-        case 'Powder':
-          inventoryItemName = 'Powders';
-          break;
-        case 'Small Bags':
-          inventoryItemName = 'Small Bags';
-          break;
-        case 'Big Bags':
-          inventoryItemName = 'Big Bags';
-          break;
-        case 'Bran Bags':
-          inventoryItemName = 'Bran Bags';
-          break;
-        default:
-          // For other items, try exact match first
-          inventoryItemName = item.name;
-      }
-      
-      const inventoryItem = inventory.find(inv => inv.name === inventoryItemName);
+      const inventoryItem = inventory.find(inv => inv.name === item.name);
       
       if (inventoryItem && item.quantity > 0) {
         inventoryItem.count += item.quantity;
         restoredItems++;
-        console.log(`Successfully restored ${item.quantity} ${inventoryItemName} to inventory`);
+        console.log(`Successfully restored ${item.quantity} ${item.name} to inventory`);
       } else {
         console.log(`Could not restore ${item.name} - inventory item not found or quantity is 0`);
       }
@@ -174,6 +156,25 @@ const Transactions = () => {
     return date.toLocaleDateString('en-US', { weekday: 'long' });
   };
 
+  const getDateDisplayText = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const dateOnly = date.toDateString();
+    const todayOnly = today.toDateString();
+    const yesterdayOnly = yesterday.toDateString();
+    
+    if (dateOnly === todayOnly) {
+      return `Today (${dateString})`;
+    } else if (dateOnly === yesterdayOnly) {
+      return `Yesterday (${dateString})`;
+    } else {
+      return dateString;
+    }
+  };
+
   const resetCalculators = () => {
     setShowTodayCalculator(false);
     setShowHamaliCalculator(false);
@@ -232,13 +233,13 @@ const Transactions = () => {
           </CardContent>
         </Card>
 
-        {/* Transactions Grouped by Date */}
+        {/* Transactions Grouped by Date (Most Recent First) */}
         <div className="space-y-6">
           {sortedDates.map((date) => (
             <Card key={date}>
               <CardHeader>
                 <CardTitle className="text-lg flex items-center gap-2">
-                  <span>{date}</span>
+                  <span>{getDateDisplayText(date)}</span>
                   <Badge variant="secondary">{getDayName(date)}</Badge>
                   <Badge variant="outline">{groupedTransactions[date].length} transactions</Badge>
                 </CardTitle>
@@ -260,7 +261,9 @@ const Transactions = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {groupedTransactions[date].map((transaction) => (
+                      {groupedTransactions[date]
+                        .sort((a, b) => b.time.localeCompare(a.time))
+                        .map((transaction) => (
                         <TableRow key={transaction.id}>
                           <TableCell>{transaction.time}</TableCell>
                           <TableCell className="font-medium">{transaction.name}</TableCell>
@@ -470,4 +473,3 @@ const Transactions = () => {
 };
 
 export default Transactions;
-

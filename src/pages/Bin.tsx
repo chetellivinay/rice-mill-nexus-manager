@@ -7,17 +7,67 @@ import { Badge } from '@/components/ui/badge';
 import { Trash2, RotateCcw } from 'lucide-react';
 import { BinItem, getBinItems, removeFromBin, cleanupExpiredBinItems, saveTransactions, getTransactions, saveInventory, getInventory } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 const Bin = () => {
   const [binItems, setBinItems] = useState<BinItem[]>([]);
+  const [showInventoryRestoreDialog, setShowInventoryRestoreDialog] = useState(false);
+  const [itemToRestore, setItemToRestore] = useState<BinItem | null>(null);
 
   useEffect(() => {
     cleanupExpiredBinItems();
     setBinItems(getBinItems());
   }, []);
 
-  const restoreItem = (item: BinItem) => {
+  const restoreInventory = (transaction: any) => {
+    const inventory = getInventory();
+    let restoredItems = 0;
+    
+    if (transaction.items) {
+      transaction.items.forEach((item: any) => {
+        const inventoryItem = inventory.find(inv => inv.name === item.name);
+        
+        if (inventoryItem && item.quantity > 0) {
+          inventoryItem.count += item.quantity;
+          restoredItems++;
+          console.log(`Successfully restored ${item.quantity} ${item.name} to inventory`);
+        } else {
+          console.log(`Could not restore ${item.name} - inventory item not found or quantity is 0`);
+        }
+      });
+    }
+    
+    if (restoredItems > 0) {
+      saveInventory(inventory);
+      toast({
+        title: "Inventory Restored",
+        description: `${restoredItems} inventory items have been restored`
+      });
+    } else {
+      toast({
+        title: "No Items Restored",
+        description: "No eligible inventory items found to restore",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleRestoreClick = (item: BinItem) => {
+    if (item.type === 'transaction' && item.data.items && item.data.items.length > 0) {
+      setItemToRestore(item);
+      setShowInventoryRestoreDialog(true);
+    } else {
+      // Direct restore for items without inventory implications
+      completeRestore(item, false);
+    }
+  };
+
+  const completeRestore = (item: BinItem, shouldRestoreInventory: boolean = false) => {
     if (item.type === 'transaction') {
+      if (shouldRestoreInventory) {
+        restoreInventory(item.data);
+      }
+      
       const transactions = getTransactions();
       transactions.push(item.data);
       saveTransactions(transactions);
@@ -30,6 +80,8 @@ const Bin = () => {
     
     removeFromBin(item.id);
     setBinItems(getBinItems());
+    setShowInventoryRestoreDialog(false);
+    setItemToRestore(null);
   };
 
   const permanentlyDelete = (id: string) => {
@@ -89,7 +141,7 @@ const Bin = () => {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => restoreItem(item)}
+                      onClick={() => handleRestoreClick(item)}
                     >
                       <RotateCcw size={16} className="mr-1" />
                       Restore
@@ -125,6 +177,26 @@ const Bin = () => {
             <p className="text-sm text-gray-400 mt-2">Deleted items will appear here</p>
           </div>
         )}
+
+        {/* Inventory Restore Dialog */}
+        <AlertDialog open={showInventoryRestoreDialog} onOpenChange={setShowInventoryRestoreDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Restore Inventory Items</AlertDialogTitle>
+              <AlertDialogDescription>
+                Do you want to add back the inventory items used in this transaction to the inventory?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => itemToRestore && completeRestore(itemToRestore, false)}>
+                No, Don't Restore Inventory
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => itemToRestore && completeRestore(itemToRestore, true)}>
+                Yes, Restore Inventory
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
