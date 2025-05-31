@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
+import InventoryMismatch from '@/components/InventoryMismatch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Search, Calculator, Trash2, Eye } from 'lucide-react';
+import { Search, Calculator, Trash2, Eye, CalendarDays } from 'lucide-react';
 import { Transaction, getTransactions, saveTransactions, addToBin, getInventory, saveInventory } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -20,6 +21,7 @@ const Transactions = () => {
   const [showTodayCalculator, setShowTodayCalculator] = useState(false);
   const [selectedForHamali, setSelectedForHamali] = useState<string[]>([]);
   const [selectedForToday, setSelectedForToday] = useState<string[]>([]);
+  const [selectedDayForBulk, setSelectedDayForBulk] = useState<string>('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -38,18 +40,21 @@ const Transactions = () => {
     return showDueOnly ? (matchesSearch && transaction.dueAmount > 0) : matchesSearch;
   });
 
-  // Parse date properly and sort with most recent first
   const parseTransactionDate = (dateString: string) => {
-    // Handle different date formats
-    const parts = dateString.split('/');
-    if (parts.length === 3) {
-      // Assuming MM/DD/YYYY or DD/MM/YYYY format
-      const month = parseInt(parts[0]) - 1; // Month is 0-indexed
-      const day = parseInt(parts[1]);
-      const year = parseInt(parts[2]);
-      return new Date(year, month, day);
+    try {
+      // Handle MM/DD/YYYY format
+      const parts = dateString.split('/');
+      if (parts.length === 3) {
+        const month = parseInt(parts[0]) - 1;
+        const day = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        return new Date(year, month, day);
+      }
+      return new Date(dateString);
+    } catch (error) {
+      console.error('Error parsing date:', dateString, error);
+      return new Date();
     }
-    return new Date(dateString);
   };
 
   // Group transactions by date with most recent dates first
@@ -148,6 +153,17 @@ const Transactions = () => {
     return selectedTransactions.reduce((sum, transaction) => sum + transaction.totalAmount, 0);
   };
 
+  const selectAllForDay = (date: string, type: 'hamali' | 'today') => {
+    const dayTransactions = groupedTransactions[date] || [];
+    const transactionIds = dayTransactions.map(t => t.id);
+    
+    if (type === 'hamali') {
+      setSelectedForHamali(prev => [...new Set([...prev, ...transactionIds])]);
+    } else {
+      setSelectedForToday(prev => [...new Set([...prev, ...transactionIds])]);
+    }
+  };
+
   const viewTransaction = (transaction: Transaction) => {
     setSelectedTransaction(transaction);
     setShowTransactionDialog(true);
@@ -166,32 +182,33 @@ const Transactions = () => {
   };
 
   const getDayName = (dateString: string) => {
-    const date = parseTransactionDate(dateString);
-    if (isNaN(date.getTime())) {
+    try {
+      const date = parseTransactionDate(dateString);
+      return date.toLocaleDateString('en-US', { weekday: 'long' });
+    } catch (error) {
       return '';
     }
-    return date.toLocaleDateString('en-US', { weekday: 'long' });
   };
 
   const getDateDisplayText = (dateString: string) => {
-    const date = parseTransactionDate(dateString);
-    if (isNaN(date.getTime())) {
-      return dateString; // Return original string if date is invalid
-    }
-    
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    const dateOnly = date.toDateString();
-    const todayOnly = today.toDateString();
-    const yesterdayOnly = yesterday.toDateString();
-    
-    if (dateOnly === todayOnly) {
-      return `Today (${dateString})`;
-    } else if (dateOnly === yesterdayOnly) {
-      return `Yesterday (${dateString})`;
-    } else {
+    try {
+      const date = parseTransactionDate(dateString);
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      const dateOnly = date.toDateString();
+      const todayOnly = today.toDateString();
+      const yesterdayOnly = yesterday.toDateString();
+      
+      if (dateOnly === todayOnly) {
+        return `Today (${dateString})`;
+      } else if (dateOnly === yesterdayOnly) {
+        return `Yesterday (${dateString})`;
+      } else {
+        return dateString;
+      }
+    } catch (error) {
       return dateString;
     }
   };
@@ -208,6 +225,40 @@ const Transactions = () => {
       <Navigation />
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Transaction History</h1>
+
+        {/* Inventory Mismatch Management */}
+        <InventoryMismatch />
+
+        {/* Calculator Results - Moved to top */}
+        {(showHamaliCalculator && selectedForHamali.length > 0) && (
+          <Card className="mb-6 border-blue-200 bg-blue-50">
+            <CardContent className="p-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-800">
+                  Total Hamali: ₹{calculateHamali().toFixed(2)}
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  Selected {selectedForHamali.length} transactions
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {(showTodayCalculator && selectedForToday.length > 0) && (
+          <Card className="mb-6 border-green-200 bg-green-50">
+            <CardContent className="p-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-800">
+                  Today's Total: ₹{calculateTodayTotal().toFixed(2)}
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  Selected {selectedForToday.length} transactions
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Controls */}
         <Card className="mb-6">
@@ -258,14 +309,43 @@ const Transactions = () => {
         <div className="space-y-6">
           {sortedDates.map((date) => {
             const dayName = getDayName(date);
+            const dayTransactions = groupedTransactions[date];
             return (
               <Card key={date}>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <span>{getDateDisplayText(date)}</span>
-                    {dayName && <Badge variant="secondary">{dayName}</Badge>}
-                    <Badge variant="outline">{groupedTransactions[date].length} transactions</Badge>
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg">{getDateDisplayText(date)}</CardTitle>
+                      {dayName && <Badge variant="secondary">{dayName}</Badge>}
+                      <Badge variant="outline">{dayTransactions.length} transactions</Badge>
+                    </div>
+                    <div className="flex gap-2">
+                      {(showHamaliCalculator || showTodayCalculator) && (
+                        <div className="flex gap-2">
+                          {showHamaliCalculator && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => selectAllForDay(date, 'hamali')}
+                            >
+                              <CalendarDays size={16} className="mr-1" />
+                              Select Day (Hamali)
+                            </Button>
+                          )}
+                          {showTodayCalculator && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => selectAllForDay(date, 'today')}
+                            >
+                              <CalendarDays size={16} className="mr-1" />
+                              Select Day (Total)
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="overflow-x-auto">
@@ -284,7 +364,7 @@ const Transactions = () => {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {groupedTransactions[date]
+                        {dayTransactions
                           .sort((a, b) => b.time.localeCompare(a.time))
                           .map((transaction) => (
                           <TableRow key={transaction.id}>
@@ -356,37 +436,6 @@ const Transactions = () => {
           <div className="text-center py-12">
             <div className="text-gray-500 text-lg">No transactions found</div>
           </div>
-        )}
-
-        {/* Calculator Results */}
-        {(showHamaliCalculator && selectedForHamali.length > 0) && (
-          <Card className="mt-6 border-blue-200">
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-800">
-                  Total Hamali: ₹{calculateHamali().toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Selected {selectedForHamali.length} transactions
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {(showTodayCalculator && selectedForToday.length > 0) && (
-          <Card className="mt-6 border-green-200">
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-800">
-                  Total Income: ₹{calculateTodayTotal().toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Selected {selectedForToday.length} transactions
-                </div>
-              </div>
-            </CardContent>
-          </Card>
         )}
 
         {/* Transaction Details Dialog */}

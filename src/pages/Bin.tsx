@@ -57,7 +57,6 @@ const Bin = () => {
       setItemToRestore(item);
       setShowInventoryRestoreDialog(true);
     } else {
-      // Direct restore for items without inventory implications
       completeRestore(item, false);
     }
   };
@@ -69,12 +68,26 @@ const Bin = () => {
       }
       
       const transactions = getTransactions();
-      transactions.push(item.data);
+      
+      // Insert transaction back in chronological order
+      const transactionToRestore = item.data;
+      const insertIndex = transactions.findIndex(t => {
+        const restoredDate = new Date(`${transactionToRestore.date} ${transactionToRestore.time}`);
+        const existingDate = new Date(`${t.date} ${t.time}`);
+        return restoredDate > existingDate;
+      });
+      
+      if (insertIndex === -1) {
+        transactions.push(transactionToRestore);
+      } else {
+        transactions.splice(insertIndex, 0, transactionToRestore);
+      }
+      
       saveTransactions(transactions);
       
       toast({
         title: "Transaction Restored",
-        description: "Transaction has been restored successfully"
+        description: "Transaction has been restored to its original position"
       });
     }
     
