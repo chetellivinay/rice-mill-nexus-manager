@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -121,9 +122,6 @@ const Store = () => {
           </Button>
         </div>
 
-        {/* Add Inventory Mismatch Component */}
-        <InventoryMismatch />
-
         <Tabs defaultValue="stock" className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="stock">Current Stock</TabsTrigger>
@@ -155,6 +153,11 @@ const Store = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Add Inventory Mismatch Component Below Current Stock */}
+            <div className="mt-6">
+              <InventoryMismatch />
+            </div>
           </TabsContent>
 
           <TabsContent value="transactions">

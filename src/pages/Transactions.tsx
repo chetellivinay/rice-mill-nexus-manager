@@ -1,224 +1,104 @@
 
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
-import InventoryMismatch from '@/components/InventoryMismatch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Search, Calculator, Trash2, Eye, CalendarDays } from 'lucide-react';
-import { Transaction, getTransactions, saveTransactions, addToBin, getInventory, saveInventory } from '@/utils/localStorage';
-import { toast } from '@/hooks/use-toast';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Calendar, Search, DollarSign, Clock } from 'lucide-react';
+import { getTransactions, Transaction } from '@/utils/localStorage';
+import { getCustomerDueInfo } from '@/utils/dueUtils';
+import DueDisplay from '@/components/DueDisplay';
 
 const Transactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showDueOnly, setShowDueOnly] = useState(false);
-  const [showHamaliCalculator, setShowHamaliCalculator] = useState(false);
-  const [showTodayCalculator, setShowTodayCalculator] = useState(false);
-  const [selectedForHamali, setSelectedForHamali] = useState<string[]>([]);
-  const [selectedForToday, setSelectedForToday] = useState<string[]>([]);
-  const [selectedDayForBulk, setSelectedDayForBulk] = useState<string>('');
-  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [showTransactionDialog, setShowTransactionDialog] = useState(false);
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [showInventoryRestoreDialog, setShowInventoryRestoreDialog] = useState(false);
-  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [showDayCalculation, setShowDayCalculation] = useState(false);
 
   useEffect(() => {
-    setTransactions(getTransactions());
+    loadTransactions();
   }, []);
 
-  const filteredTransactions = transactions.filter(transaction => {
-    const matchesSearch = transaction.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         transaction.village.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         transaction.phone.includes(searchTerm);
-    
-    return showDueOnly ? (matchesSearch && transaction.dueAmount > 0) : matchesSearch;
-  });
-
-  const parseTransactionDate = (dateString: string) => {
-    try {
-      // Handle MM/DD/YYYY format
-      const parts = dateString.split('/');
-      if (parts.length === 3) {
-        const month = parseInt(parts[0]) - 1;
-        const day = parseInt(parts[1]);
-        const year = parseInt(parts[2]);
-        return new Date(year, month, day);
+  const loadTransactions = () => {
+    const allTransactions = getTransactions();
+    // Sort transactions by date (most recent first), then by time (most recent first)
+    const sortedTransactions = allTransactions.sort((a, b) => {
+      const dateA = new Date(a.date);
+      const dateB = new Date(b.date);
+      
+      if (dateA.getTime() !== dateB.getTime()) {
+        return dateB.getTime() - dateA.getTime(); // Most recent date first
       }
-      return new Date(dateString);
-    } catch (error) {
-      console.error('Error parsing date:', dateString, error);
-      return new Date();
+      
+      // If dates are the same, sort by time (most recent first)
+      const timeA = new Date(`1970-01-01 ${a.time}`);
+      const timeB = new Date(`1970-01-01 ${b.time}`);
+      return timeB.getTime() - timeA.getTime();
+    });
+    
+    setTransactions(sortedTransactions);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    // Reset time to compare dates only
+    today.setHours(0, 0, 0, 0);
+    yesterday.setHours(0, 0, 0, 0);
+    date.setHours(0, 0, 0, 0);
+
+    if (date.getTime() === today.getTime()) {
+      return 'Today';
+    } else if (date.getTime() === yesterday.getTime()) {
+      return 'Yesterday';
+    } else {
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      });
     }
   };
 
-  // Group transactions by date with most recent dates first
-  const groupedTransactions = filteredTransactions.reduce((groups, transaction) => {
+  const filteredTransactions = transactions.filter(transaction => {
+    const matchesSearch = searchTerm === '' || 
+      transaction.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      transaction.village.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      transaction.phone.includes(searchTerm);
+
+    const matchesDate = selectedDate === '' || transaction.date === selectedDate;
+
+    return matchesSearch && matchesDate;
+  });
+
+  // Group transactions by date
+  const groupedTransactions = filteredTransactions.reduce((groups: { [key: string]: Transaction[] }, transaction) => {
     const date = transaction.date;
     if (!groups[date]) {
       groups[date] = [];
     }
     groups[date].push(transaction);
     return groups;
-  }, {} as Record<string, Transaction[]>);
+  }, {});
 
-  // Sort dates in descending order (most recent first)
-  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => {
-    const dateA = parseTransactionDate(a);
-    const dateB = parseTransactionDate(b);
-    return dateB.getTime() - dateA.getTime();
-  });
-
-  const restoreInventory = (transaction: Transaction) => {
-    const inventory = getInventory();
-    let restoredItems = 0;
-    
-    transaction.items.forEach(item => {
-      const inventoryItem = inventory.find(inv => inv.name === item.name);
-      
-      if (inventoryItem && item.quantity > 0) {
-        inventoryItem.count += item.quantity;
-        restoredItems++;
-        console.log(`Successfully restored ${item.quantity} ${item.name} to inventory`);
-      } else {
-        console.log(`Could not restore ${item.name} - inventory item not found or quantity is 0`);
-      }
-    });
-    
-    if (restoredItems > 0) {
-      saveInventory(inventory);
-      toast({
-        title: "Inventory Restored",
-        description: `${restoredItems} inventory items have been restored`
-      });
-    } else {
-      toast({
-        title: "No Items Restored",
-        description: "No eligible inventory items found to restore",
-        variant: "destructive"
-      });
-    }
-  };
-
-  const deleteTransaction = (id: string, shouldRestoreInventory: boolean = false) => {
-    const transactionToDelete = transactions.find(t => t.id === id);
-    if (transactionToDelete) {
-      if (shouldRestoreInventory) {
-        restoreInventory(transactionToDelete);
-      }
-      
-      addToBin('transaction', transactionToDelete);
-      
-      const updatedTransactions = transactions.filter(t => t.id !== id);
-      setTransactions(updatedTransactions);
-      saveTransactions(updatedTransactions);
-      
-      setShowDeleteDialog(false);
-      setShowInventoryRestoreDialog(false);
-      setTransactionToDelete(null);
-      
-      toast({
-        title: "Transaction Deleted",
-        description: "Transaction moved to bin for 7 days"
-      });
-    }
-  };
-
-  const handleDeleteClick = (id: string) => {
-    setTransactionToDelete(id);
-    setShowDeleteDialog(true);
-  };
-
-  const handleConfirmDelete = () => {
-    setShowDeleteDialog(false);
-    setShowInventoryRestoreDialog(true);
-  };
-
-  const calculateHamali = () => {
-    const selectedTransactions = transactions.filter(t => selectedForHamali.includes(t.id));
-    return selectedTransactions.reduce((sum, transaction) => {
-      const loadingItem = transaction.items.find(item => item.name === 'Loading');
-      const unloadingItem = transaction.items.find(item => item.name === 'Unloading');
-      return sum + (loadingItem?.total || 0) + (unloadingItem?.total || 0);
+  // Calculate totals for selected date or today
+  const calculateDayTotals = (date: string) => {
+    const dayTransactions = transactions.filter(t => t.date === date);
+    const totalIncome = dayTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
+    const totalHamali = dayTransactions.reduce((sum, t) => {
+      const millingItem = t.items.find(item => item.name === 'Milling');
+      return sum + (millingItem ? millingItem.total : 0);
     }, 0);
+    return { totalIncome, totalHamali, transactionCount: dayTransactions.length };
   };
 
-  const calculateTodayTotal = () => {
-    const selectedTransactions = transactions.filter(t => selectedForToday.includes(t.id));
-    return selectedTransactions.reduce((sum, transaction) => sum + transaction.totalAmount, 0);
-  };
-
-  const selectAllForDay = (date: string, type: 'hamali' | 'today') => {
-    const dayTransactions = groupedTransactions[date] || [];
-    const transactionIds = dayTransactions.map(t => t.id);
-    
-    if (type === 'hamali') {
-      setSelectedForHamali(prev => [...new Set([...prev, ...transactionIds])]);
-    } else {
-      setSelectedForToday(prev => [...new Set([...prev, ...transactionIds])]);
-    }
-  };
-
-  const viewTransaction = (transaction: Transaction) => {
-    setSelectedTransaction(transaction);
-    setShowTransactionDialog(true);
-  };
-
-  const toggleHamaliSelection = (id: string) => {
-    setSelectedForHamali(prev => 
-      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
-    );
-  };
-
-  const toggleTodaySelection = (id: string) => {
-    setSelectedForToday(prev => 
-      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
-    );
-  };
-
-  const getDayName = (dateString: string) => {
-    try {
-      const date = parseTransactionDate(dateString);
-      return date.toLocaleDateString('en-US', { weekday: 'long' });
-    } catch (error) {
-      return '';
-    }
-  };
-
-  const getDateDisplayText = (dateString: string) => {
-    try {
-      const date = parseTransactionDate(dateString);
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      
-      const dateOnly = date.toDateString();
-      const todayOnly = today.toDateString();
-      const yesterdayOnly = yesterday.toDateString();
-      
-      if (dateOnly === todayOnly) {
-        return `Today (${dateString})`;
-      } else if (dateOnly === yesterdayOnly) {
-        return `Yesterday (${dateString})`;
-      } else {
-        return dateString;
-      }
-    } catch (error) {
-      return dateString;
-    }
-  };
-
-  const resetCalculators = () => {
-    setShowTodayCalculator(false);
-    setShowHamaliCalculator(false);
-    setSelectedForToday([]);
-    setSelectedForHamali([]);
-  };
+  const todayDate = new Date().toLocaleDateString();
+  const todayTotals = calculateDayTotals(todayDate);
+  const selectedDateTotals = selectedDate ? calculateDayTotals(selectedDate) : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -226,320 +106,162 @@ const Transactions = () => {
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Transaction History</h1>
 
-        {/* Inventory Mismatch Management */}
-        <InventoryMismatch />
-
-        {/* Calculator Results - Moved to top */}
-        {(showHamaliCalculator && selectedForHamali.length > 0) && (
-          <Card className="mb-6 border-blue-200 bg-blue-50">
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-800">
-                  Total Hamali: ₹{calculateHamali().toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Selected {selectedForHamali.length} transactions
-                </div>
-              </div>
+        {/* Today's Totals */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-green-600">₹{todayTotals.totalIncome.toFixed(2)}</div>
+              <div className="text-sm text-gray-600">Today's Total Income</div>
+              <div className="text-xs text-gray-500">{todayTotals.transactionCount} transactions</div>
             </CardContent>
           </Card>
-        )}
-
-        {(showTodayCalculator && selectedForToday.length > 0) && (
-          <Card className="mb-6 border-green-200 bg-green-50">
-            <CardContent className="p-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-800">
-                  Today's Total: ₹{calculateTodayTotal().toFixed(2)}
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Selected {selectedForToday.length} transactions
-                </div>
-              </div>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">₹{todayTotals.totalHamali.toFixed(2)}</div>
+              <div className="text-sm text-gray-600">Today's Total Hamali</div>
             </CardContent>
           </Card>
-        )}
-
-        {/* Controls */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="flex flex-wrap gap-4 items-center">
-              <div className="flex-1 min-w-[200px]">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search customers..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-              </div>
+          <Card>
+            <CardContent className="p-4 text-center">
               <Button
-                variant={showDueOnly ? "default" : "outline"}
-                onClick={() => {
-                  setShowDueOnly(!showDueOnly);
-                  if (!showDueOnly) {
-                    resetCalculators();
-                  }
-                }}
+                variant="outline"
+                onClick={() => setShowDayCalculation(!showDayCalculation)}
+                className="w-full"
               >
-                Show Due Only
+                <Calendar className="h-4 w-4 mr-2" />
+                Calculate Day Totals
               </Button>
-              <Button
-                variant={showTodayCalculator ? "default" : "outline"}
-                onClick={() => setShowTodayCalculator(!showTodayCalculator)}
-                disabled={showDueOnly}
-              >
-                Calculate Today's Total
-              </Button>
-              <Button
-                variant={showHamaliCalculator ? "default" : "outline"}
-                onClick={() => setShowHamaliCalculator(!showHamaliCalculator)}
-                disabled={showDueOnly}
-              >
-                <Calculator size={16} className="mr-2" />
-                Calculate Hamali
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Transactions Grouped by Date (Most Recent First) */}
-        <div className="space-y-6">
-          {sortedDates.map((date) => {
-            const dayName = getDayName(date);
-            const dayTransactions = groupedTransactions[date];
-            return (
-              <Card key={date}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <CardTitle className="text-lg">{getDateDisplayText(date)}</CardTitle>
-                      {dayName && <Badge variant="secondary">{dayName}</Badge>}
-                      <Badge variant="outline">{dayTransactions.length} transactions</Badge>
-                    </div>
-                    <div className="flex gap-2">
-                      {(showHamaliCalculator || showTodayCalculator) && (
-                        <div className="flex gap-2">
-                          {showHamaliCalculator && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => selectAllForDay(date, 'hamali')}
-                            >
-                              <CalendarDays size={16} className="mr-1" />
-                              Select Day (Hamali)
-                            </Button>
-                          )}
-                          {showTodayCalculator && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => selectAllForDay(date, 'today')}
-                            >
-                              <CalendarDays size={16} className="mr-1" />
-                              Select Day (Total)
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Time</TableHead>
-                          <TableHead>Customer Name</TableHead>
-                          <TableHead>Village</TableHead>
-                          <TableHead>Amount</TableHead>
-                          <TableHead>Due</TableHead>
-                          {(showHamaliCalculator || showTodayCalculator) && (
-                            <TableHead>Select</TableHead>
-                          )}
-                          <TableHead>Action</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {dayTransactions
-                          .sort((a, b) => b.time.localeCompare(a.time))
-                          .map((transaction) => (
-                          <TableRow key={transaction.id}>
-                            <TableCell>{transaction.time}</TableCell>
-                            <TableCell className="font-medium">{transaction.name}</TableCell>
-                            <TableCell>{transaction.village}</TableCell>
-                            <TableCell>₹{transaction.totalAmount.toFixed(2)}</TableCell>
-                            <TableCell>
-                              {transaction.dueAmount > 0 && (
-                                <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                              )}
-                            </TableCell>
-                            {(showHamaliCalculator || showTodayCalculator) && (
-                              <TableCell>
-                                <div className="flex space-x-2">
-                                  {showHamaliCalculator && (
-                                    <div className="flex items-center space-x-2">
-                                      <Checkbox
-                                        checked={selectedForHamali.includes(transaction.id)}
-                                        onCheckedChange={() => toggleHamaliSelection(transaction.id)}
-                                      />
-                                      <span className="text-sm">Hamali</span>
-                                    </div>
-                                  )}
-                                  {showTodayCalculator && (
-                                    <div className="flex items-center space-x-2">
-                                      <Checkbox
-                                        checked={selectedForToday.includes(transaction.id)}
-                                        onCheckedChange={() => toggleTodaySelection(transaction.id)}
-                                      />
-                                      <span className="text-sm">Today</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </TableCell>
-                            )}
-                            <TableCell>
-                              <div className="flex space-x-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => viewTransaction(transaction)}
-                                >
-                                  <Eye size={16} className="mr-1" />
-                                  View
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDeleteClick(transaction.id)}
-                                >
-                                  <Trash2 size={16} className="mr-1" />
-                                  Delete
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+            </CardContent>
+          </Card>
         </div>
 
-        {filteredTransactions.length === 0 && (
-          <div className="text-center py-12">
-            <div className="text-gray-500 text-lg">No transactions found</div>
-          </div>
-        )}
-
-        {/* Transaction Details Dialog */}
-        {showTransactionDialog && selectedTransaction && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <Card className="w-full max-w-4xl max-h-[80vh] overflow-y-auto">
-              <CardHeader>
-                <CardTitle>Transaction Details</CardTitle>
-                <div className="text-sm text-gray-600">
-                  {selectedTransaction.name} • {selectedTransaction.village} • {selectedTransaction.date} at {selectedTransaction.time}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div>
-                      <div className="text-sm text-gray-600">Phone</div>
-                      <div className="font-medium">{selectedTransaction.phone}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Total Amount</div>
-                      <div className="font-bold">₹{selectedTransaction.totalAmount.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Paid Amount</div>
-                      <div className="font-bold text-green-600">₹{selectedTransaction.paidAmount.toFixed(2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-sm text-gray-600">Due Amount</div>
-                      <div className="font-bold text-red-600">₹{selectedTransaction.dueAmount.toFixed(2)}</div>
-                    </div>
-                  </div>
-                  
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse border border-gray-300">
-                      <thead>
-                        <tr className="bg-gray-100">
-                          <th className="border border-gray-300 p-3 text-left">Item</th>
-                          <th className="border border-gray-300 p-3 text-left">Rate</th>
-                          <th className="border border-gray-300 p-3 text-left">Quantity</th>
-                          <th className="border border-gray-300 p-3 text-left">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selectedTransaction.items.map((item, index) => (
-                          <tr key={index}>
-                            <td className="border border-gray-300 p-3">{item.name}</td>
-                            <td className="border border-gray-300 p-3">₹{item.rate.toFixed(2)}</td>
-                            <td className="border border-gray-300 p-3">{item.quantity}</td>
-                            <td className="border border-gray-300 p-3">₹{item.total.toFixed(2)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                
-                <div className="mt-6 flex justify-end">
-                  <Button onClick={() => setShowTransactionDialog(false)}>
-                    Close
-                  </Button>
-                </div>
+        {/* Selected Date Totals */}
+        {selectedDateTotals && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <Card className="border-blue-200">
+              <CardContent className="p-4 text-center">
+                <div className="text-xl font-bold text-green-600">₹{selectedDateTotals.totalIncome.toFixed(2)}</div>
+                <div className="text-sm text-gray-600">Selected Day Income</div>
+                <div className="text-xs text-gray-500">{selectedDateTotals.transactionCount} transactions</div>
+              </CardContent>
+            </Card>
+            <Card className="border-blue-200">
+              <CardContent className="p-4 text-center">
+                <div className="text-xl font-bold text-blue-600">₹{selectedDateTotals.totalHamali.toFixed(2)}</div>
+                <div className="text-sm text-gray-600">Selected Day Hamali</div>
               </CardContent>
             </Card>
           </div>
         )}
 
-        {/* Delete Confirmation Dialog */}
-        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete Transaction</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to delete this transaction? It will be moved to the bin for 7 days.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={handleConfirmDelete}>
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Search and Filter Controls */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Input
+                  placeholder="Search by name, village, or phone..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              
+              {showDayCalculation && (
+                <div>
+                  <Input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    placeholder="Select date"
+                  />
+                </div>
+              )}
+              
+              <div className="text-sm text-gray-600 flex items-center">
+                <DollarSign className="h-4 w-4 mr-1" />
+                Total Transactions: {filteredTransactions.length}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
-        {/* Inventory Restore Dialog */}
-        <AlertDialog open={showInventoryRestoreDialog} onOpenChange={setShowInventoryRestoreDialog}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Restore Inventory</AlertDialogTitle>
-              <AlertDialogDescription>
-                Do you want to restore the inventory items used in this transaction back to the inventory?
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => transactionToDelete && deleteTransaction(transactionToDelete, false)}>
-                No
-              </AlertDialogCancel>
-              <AlertDialogAction onClick={() => transactionToDelete && deleteTransaction(transactionToDelete, true)}>
-                Restore
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        {/* Transactions List */}
+        <div className="space-y-6">
+          {Object.keys(groupedTransactions)
+            .sort((a, b) => new Date(b).getTime() - new Date(a).getTime()) // Sort dates descending
+            .map((date) => (
+            <div key={date}>
+              <h2 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <Calendar className="h-5 w-5" />
+                {formatDate(date)}
+                <Badge variant="outline" className="ml-2">
+                  {groupedTransactions[date].length} transactions
+                </Badge>
+              </h2>
+              
+              <div className="grid gap-4">
+                {groupedTransactions[date].map((transaction) => (
+                  <Card key={transaction.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-4">
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h3 className="font-medium text-lg">{transaction.name}</h3>
+                          <p className="text-sm text-gray-600">{transaction.village}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {transaction.phone && (
+                              <>
+                                <span className="text-sm text-gray-500">{transaction.phone}</span>
+                                <DueDisplay phone={transaction.phone} variant="outline" className="text-xs" />
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="flex items-center gap-1 text-sm text-gray-500 mb-1">
+                            <Clock className="h-3 w-3" />
+                            {transaction.time}
+                          </div>
+                          <div className="text-lg font-bold text-green-600">
+                            ₹{transaction.totalAmount.toFixed(2)}
+                          </div>
+                          {transaction.dueAmount > 0 && (
+                            <div className="text-sm text-red-600">
+                              Due: ₹{transaction.dueAmount.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="border-t pt-3">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+                          {transaction.items.map((item, index) => (
+                            <div key={index} className="flex justify-between">
+                              <span className="text-gray-600">{item.name}:</span>
+                              <span className="font-medium">{item.quantity} × ₹{item.rate}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-2 pt-2 border-t flex justify-between text-sm">
+                          <span>Paid: ₹{transaction.paidAmount.toFixed(2)}</span>
+                          <span>Due: ₹{transaction.dueAmount.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {filteredTransactions.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-gray-500 text-lg">No transactions found</div>
+            <p className="text-sm text-gray-400 mt-2">Try adjusting your search criteria</p>
+          </div>
+        )}
       </div>
     </div>
   );
