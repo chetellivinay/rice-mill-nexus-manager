@@ -1,154 +1,223 @@
 
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
+import InventoryMismatch from '@/components/InventoryMismatch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Search, Calendar, Eye, Trash2 } from 'lucide-react';
-import { getTransactions, saveTransactions, getInventory, saveInventory, Transaction } from '@/utils/localStorage';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Search, Calculator, Trash2, Eye, CalendarDays } from 'lucide-react';
+import { Transaction, getTransactions, saveTransactions, addToBin, getInventory, saveInventory } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 const Transactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showDueOnly, setShowDueOnly] = useState(false);
-  const [showTodayTotal, setShowTodayTotal] = useState(false);
-  const [showHamali, setShowHamali] = useState(false);
+  const [showHamaliCalculator, setShowHamaliCalculator] = useState(false);
+  const [showTodayCalculator, setShowTodayCalculator] = useState(false);
+  const [selectedForHamali, setSelectedForHamali] = useState<string[]>([]);
+  const [selectedForToday, setSelectedForToday] = useState<string[]>([]);
+  const [selectedDayForBulk, setSelectedDayForBulk] = useState<string>('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
-  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
-  const [todayTotal, setTodayTotal] = useState(0);
-  const [hamaliTotal, setHamaliTotal] = useState(0);
+  const [showTransactionDialog, setShowTransactionDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showInventoryRestoreDialog, setShowInventoryRestoreDialog] = useState(false);
+  const [transactionToDelete, setTransactionToDelete] = useState<string | null>(null);
 
   useEffect(() => {
-    loadTransactions();
+    setTransactions(getTransactions());
   }, []);
 
-  const loadTransactions = () => {
-    const allTransactions = getTransactions();
-    const sortedTransactions = allTransactions.sort((a, b) => {
-      const dateA = new Date(a.date);
-      const dateB = new Date(b.date);
-      
-      if (dateA.getTime() !== dateB.getTime()) {
-        return dateB.getTime() - dateA.getTime();
-      }
-      
-      const timeA = new Date(`1970-01-01 ${a.time}`);
-      const timeB = new Date(`1970-01-01 ${b.time}`);
-      return timeB.getTime() - timeA.getTime();
-    });
-    
-    setTransactions(sortedTransactions);
-  };
-
-  const calculateTodayTotal = () => {
-    const today = new Date().toLocaleDateString();
-    const todayTransactions = filteredTransactions.filter(t => t.date === today);
-    const total = todayTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
-    setTodayTotal(total);
-    setShowTodayTotal(true);
-    toast({
-      title: "Today's Total Calculated",
-      description: `Total: ₹${total.toFixed(2)} from ${todayTransactions.length} transactions`
-    });
-  };
-
-  const calculateHamali = () => {
-    const hamali = filteredTransactions.reduce((sum, transaction) => {
-      const loadingCharges = transaction.items
-        .filter(item => item.name.toLowerCase().includes('loading'))
-        .reduce((itemSum, item) => itemSum + item.total, 0);
-      const unloadingCharges = transaction.items
-        .filter(item => item.name.toLowerCase().includes('unloading'))
-        .reduce((itemSum, item) => itemSum + item.total, 0);
-      return sum + loadingCharges + unloadingCharges;
-    }, 0);
-    
-    setHamaliTotal(hamali);
-    setShowHamali(true);
-    toast({
-      title: "Hamali Total Calculated",
-      description: `Total Hamali: ₹${hamali.toFixed(2)}`
-    });
-  };
-
-  const viewTransaction = (transaction: Transaction) => {
-    setSelectedTransaction(transaction);
-  };
-
-  const confirmDeleteTransaction = (transaction: Transaction) => {
-    setTransactionToDelete(transaction);
-  };
-
-  const deleteTransaction = () => {
-    if (!transactionToDelete) return;
-
-    // Restore inventory items
-    const inventory = getInventory();
-    transactionToDelete.items.forEach(item => {
-      const inventoryItem = inventory.find(inv => inv.name === item.name);
-      if (inventoryItem) {
-        inventoryItem.count += item.quantity;
-      }
-    });
-    saveInventory(inventory);
-
-    // Remove transaction
-    const updatedTransactions = transactions.filter(t => t.id !== transactionToDelete.id);
-    setTransactions(updatedTransactions);
-    saveTransactions(updatedTransactions);
-
-    setTransactionToDelete(null);
-    toast({
-      title: "Transaction Deleted",
-      description: "Transaction deleted and inventory restored successfully"
-    });
-  };
-
   const filteredTransactions = transactions.filter(transaction => {
-    const matchesSearch = searchTerm === '' || 
-      transaction.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.village.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      transaction.phone.includes(searchTerm);
-
-    const matchesDue = !showDueOnly || transaction.dueAmount > 0;
-
-    return matchesSearch && matchesDue;
+    const matchesSearch = transaction.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         transaction.village.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         transaction.phone.includes(searchTerm);
+    
+    return showDueOnly ? (matchesSearch && transaction.dueAmount > 0) : matchesSearch;
   });
 
-  const groupedTransactions = filteredTransactions.reduce((groups: { [key: string]: Transaction[] }, transaction) => {
+  const parseTransactionDate = (dateString: string) => {
+    try {
+      // Handle MM/DD/YYYY format
+      const parts = dateString.split('/');
+      if (parts.length === 3) {
+        const month = parseInt(parts[0]) - 1;
+        const day = parseInt(parts[1]);
+        const year = parseInt(parts[2]);
+        return new Date(year, month, day);
+      }
+      return new Date(dateString);
+    } catch (error) {
+      console.error('Error parsing date:', dateString, error);
+      return new Date();
+    }
+  };
+
+  // Group transactions by date with most recent dates first
+  const groupedTransactions = filteredTransactions.reduce((groups, transaction) => {
     const date = transaction.date;
     if (!groups[date]) {
       groups[date] = [];
     }
     groups[date].push(transaction);
     return groups;
-  }, {});
+  }, {} as Record<string, Transaction[]>);
 
-  const formatDateHeader = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+  // Sort dates in descending order (most recent first)
+  const sortedDates = Object.keys(groupedTransactions).sort((a, b) => {
+    const dateA = parseTransactionDate(a);
+    const dateB = parseTransactionDate(b);
+    return dateB.getTime() - dateA.getTime();
+  });
 
-    today.setHours(0, 0, 0, 0);
-    yesterday.setHours(0, 0, 0, 0);
-    date.setHours(0, 0, 0, 0);
-
-    if (date.getTime() === today.getTime()) {
-      return 'Today';
-    } else if (date.getTime() === yesterday.getTime()) {
-      return 'Yesterday';
+  const restoreInventory = (transaction: Transaction) => {
+    const inventory = getInventory();
+    let restoredItems = 0;
+    
+    transaction.items.forEach(item => {
+      const inventoryItem = inventory.find(inv => inv.name === item.name);
+      
+      if (inventoryItem && item.quantity > 0) {
+        inventoryItem.count += item.quantity;
+        restoredItems++;
+        console.log(`Successfully restored ${item.quantity} ${item.name} to inventory`);
+      } else {
+        console.log(`Could not restore ${item.name} - inventory item not found or quantity is 0`);
+      }
+    });
+    
+    if (restoredItems > 0) {
+      saveInventory(inventory);
+      toast({
+        title: "Inventory Restored",
+        description: `${restoredItems} inventory items have been restored`
+      });
     } else {
-      return date.toLocaleDateString('en-GB', { weekday: 'long' });
+      toast({
+        title: "No Items Restored",
+        description: "No eligible inventory items found to restore",
+        variant: "destructive"
+      });
     }
   };
 
-  const getTransactionCountForDate = (date: string) => {
-    return groupedTransactions[date]?.length || 0;
+  const deleteTransaction = (id: string, shouldRestoreInventory: boolean = false) => {
+    const transactionToDelete = transactions.find(t => t.id === id);
+    if (transactionToDelete) {
+      if (shouldRestoreInventory) {
+        restoreInventory(transactionToDelete);
+      }
+      
+      addToBin('transaction', transactionToDelete);
+      
+      const updatedTransactions = transactions.filter(t => t.id !== id);
+      setTransactions(updatedTransactions);
+      saveTransactions(updatedTransactions);
+      
+      setShowDeleteDialog(false);
+      setShowInventoryRestoreDialog(false);
+      setTransactionToDelete(null);
+      
+      toast({
+        title: "Transaction Deleted",
+        description: "Transaction moved to bin for 7 days"
+      });
+    }
+  };
+
+  const handleDeleteClick = (id: string) => {
+    setTransactionToDelete(id);
+    setShowDeleteDialog(true);
+  };
+
+  const handleConfirmDelete = () => {
+    setShowDeleteDialog(false);
+    setShowInventoryRestoreDialog(true);
+  };
+
+  const calculateHamali = () => {
+    const selectedTransactions = transactions.filter(t => selectedForHamali.includes(t.id));
+    return selectedTransactions.reduce((sum, transaction) => {
+      const loadingItem = transaction.items.find(item => item.name === 'Loading');
+      const unloadingItem = transaction.items.find(item => item.name === 'Unloading');
+      return sum + (loadingItem?.total || 0) + (unloadingItem?.total || 0);
+    }, 0);
+  };
+
+  const calculateTodayTotal = () => {
+    const selectedTransactions = transactions.filter(t => selectedForToday.includes(t.id));
+    return selectedTransactions.reduce((sum, transaction) => sum + transaction.totalAmount, 0);
+  };
+
+  const selectAllForDay = (date: string, type: 'hamali' | 'today') => {
+    const dayTransactions = groupedTransactions[date] || [];
+    const transactionIds = dayTransactions.map(t => t.id);
+    
+    if (type === 'hamali') {
+      setSelectedForHamali(prev => [...new Set([...prev, ...transactionIds])]);
+    } else {
+      setSelectedForToday(prev => [...new Set([...prev, ...transactionIds])]);
+    }
+  };
+
+  const viewTransaction = (transaction: Transaction) => {
+    setSelectedTransaction(transaction);
+    setShowTransactionDialog(true);
+  };
+
+  const toggleHamaliSelection = (id: string) => {
+    setSelectedForHamali(prev => 
+      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
+    );
+  };
+
+  const toggleTodaySelection = (id: string) => {
+    setSelectedForToday(prev => 
+      prev.includes(id) ? prev.filter(txId => txId !== id) : [...prev, id]
+    );
+  };
+
+  const getDayName = (dateString: string) => {
+    try {
+      const date = parseTransactionDate(dateString);
+      return date.toLocaleDateString('en-US', { weekday: 'long' });
+    } catch (error) {
+      return '';
+    }
+  };
+
+  const getDateDisplayText = (dateString: string) => {
+    try {
+      const date = parseTransactionDate(dateString);
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      const dateOnly = date.toDateString();
+      const todayOnly = today.toDateString();
+      const yesterdayOnly = yesterday.toDateString();
+      
+      if (dateOnly === todayOnly) {
+        return `Today (${dateString})`;
+      } else if (dateOnly === yesterdayOnly) {
+        return `Yesterday (${dateString})`;
+      } else {
+        return dateString;
+      }
+    } catch (error) {
+      return dateString;
+    }
+  };
+
+  const resetCalculators = () => {
+    setShowTodayCalculator(false);
+    setShowHamaliCalculator(false);
+    setSelectedForToday([]);
+    setSelectedForHamali([]);
   };
 
   return (
@@ -157,220 +226,317 @@ const Transactions = () => {
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Transaction History</h1>
 
-        {/* Totals Display */}
-        {(showTodayTotal || showHamali) && (
-          <Card className="mb-6">
+        {/* Inventory Mismatch Management */}
+        <InventoryMismatch />
+
+        {/* Calculator Results - Moved to top */}
+        {(showHamaliCalculator && selectedForHamali.length > 0) && (
+          <Card className="mb-6 border-blue-200 bg-blue-50">
             <CardContent className="p-4">
-              <div className="flex items-center space-x-6">
-                {showTodayTotal && (
-                  <div className="flex items-center space-x-2">
-                    <span className="font-medium">Today's Total:</span>
-                    <Badge variant="default" className="text-lg">₹{todayTotal.toFixed(2)}</Badge>
-                  </div>
-                )}
-                {showHamali && (
-                  <div className="flex items-center space-x-2">
-                    <span className="font-medium">Total Hamali:</span>
-                    <Badge variant="secondary" className="text-lg">₹{hamaliTotal.toFixed(2)}</Badge>
-                  </div>
-                )}
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-800">
+                  Total Hamali: ₹{calculateHamali().toFixed(2)}
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  Selected {selectedForHamali.length} transactions
+                </div>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {/* Search and Filter Controls */}
+        {(showTodayCalculator && selectedForToday.length > 0) && (
+          <Card className="mb-6 border-green-200 bg-green-50">
+            <CardContent className="p-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-800">
+                  Today's Total: ₹{calculateTodayTotal().toFixed(2)}
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  Selected {selectedForToday.length} transactions
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Controls */}
         <Card className="mb-6">
           <CardContent className="p-4">
-            <div className="flex items-center space-x-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                <Input
-                  placeholder="Search customers..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+            <div className="flex flex-wrap gap-4 items-center">
+              <div className="flex-1 min-w-[200px]">
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search customers..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
               </div>
-              
               <Button
                 variant={showDueOnly ? "default" : "outline"}
-                onClick={() => setShowDueOnly(!showDueOnly)}
+                onClick={() => {
+                  setShowDueOnly(!showDueOnly);
+                  if (!showDueOnly) {
+                    resetCalculators();
+                  }
+                }}
               >
                 Show Due Only
               </Button>
-              
               <Button
-                variant="outline"
-                onClick={calculateTodayTotal}
+                variant={showTodayCalculator ? "default" : "outline"}
+                onClick={() => setShowTodayCalculator(!showTodayCalculator)}
+                disabled={showDueOnly}
               >
                 Calculate Today's Total
               </Button>
-              
               <Button
-                variant="outline"
-                onClick={calculateHamali}
-                className="whitespace-nowrap"
+                variant={showHamaliCalculator ? "default" : "outline"}
+                onClick={() => setShowHamaliCalculator(!showHamaliCalculator)}
+                disabled={showDueOnly}
               >
-                <Calendar className="h-4 w-4 mr-2" />
+                <Calculator size={16} className="mr-2" />
                 Calculate Hamali
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Transactions List */}
+        {/* Transactions Grouped by Date (Most Recent First) */}
         <div className="space-y-6">
-          {Object.keys(groupedTransactions)
-            .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
-            .map((date) => (
-            <div key={date}>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  {date} <span className="text-gray-500">{formatDateHeader(date)}</span>
-                </h2>
-                <Badge variant="outline">
-                  {getTransactionCountForDate(date)} transaction{getTransactionCountForDate(date) !== 1 ? 's' : ''}
-                </Badge>
-              </div>
-              
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse bg-white rounded-lg shadow-sm">
-                  <thead>
-                    <tr className="border-b bg-gray-50">
-                      <th className="text-left p-3 font-medium">Time</th>
-                      <th className="text-left p-3 font-medium">Customer Name</th>
-                      <th className="text-left p-3 font-medium">Village</th>
-                      <th className="text-center p-3 font-medium">Amount</th>
-                      <th className="text-center p-3 font-medium">Due</th>
-                      <th className="text-center p-3 font-medium">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {groupedTransactions[date].map((transaction) => (
-                      <tr key={transaction.id} className="border-b hover:bg-gray-50">
-                        <td className="p-3">{transaction.time}</td>
-                        <td className="p-3 font-medium">{transaction.name}</td>
-                        <td className="p-3">{transaction.village}</td>
-                        <td className="p-3 text-center font-bold">₹{transaction.totalAmount.toFixed(2)}</td>
-                        <td className="p-3 text-center">
-                          {transaction.dueAmount > 0 ? (
-                            <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                          ) : (
-                            '-'
+          {sortedDates.map((date) => {
+            const dayName = getDayName(date);
+            const dayTransactions = groupedTransactions[date];
+            return (
+              <Card key={date}>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-lg">{getDateDisplayText(date)}</CardTitle>
+                      {dayName && <Badge variant="secondary">{dayName}</Badge>}
+                      <Badge variant="outline">{dayTransactions.length} transactions</Badge>
+                    </div>
+                    <div className="flex gap-2">
+                      {(showHamaliCalculator || showTodayCalculator) && (
+                        <div className="flex gap-2">
+                          {showHamaliCalculator && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => selectAllForDay(date, 'hamali')}
+                            >
+                              <CalendarDays size={16} className="mr-1" />
+                              Select Day (Hamali)
+                            </Button>
                           )}
-                        </td>
-                        <td className="p-3 text-center">
-                          <div className="flex items-center justify-center space-x-2">
-                            <Button size="sm" variant="outline" onClick={() => viewTransaction(transaction)}>
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
+                          {showTodayCalculator && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => selectAllForDay(date, 'today')}
+                            >
+                              <CalendarDays size={16} className="mr-1" />
+                              Select Day (Total)
                             </Button>
-                            <Button size="sm" variant="outline" onClick={() => confirmDeleteTransaction(transaction)}>
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Time</TableHead>
+                          <TableHead>Customer Name</TableHead>
+                          <TableHead>Village</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Due</TableHead>
+                          {(showHamaliCalculator || showTodayCalculator) && (
+                            <TableHead>Select</TableHead>
+                          )}
+                          <TableHead>Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dayTransactions
+                          .sort((a, b) => b.time.localeCompare(a.time))
+                          .map((transaction) => (
+                          <TableRow key={transaction.id}>
+                            <TableCell>{transaction.time}</TableCell>
+                            <TableCell className="font-medium">{transaction.name}</TableCell>
+                            <TableCell>{transaction.village}</TableCell>
+                            <TableCell>₹{transaction.totalAmount.toFixed(2)}</TableCell>
+                            <TableCell>
+                              {transaction.dueAmount > 0 && (
+                                <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                              )}
+                            </TableCell>
+                            {(showHamaliCalculator || showTodayCalculator) && (
+                              <TableCell>
+                                <div className="flex space-x-2">
+                                  {showHamaliCalculator && (
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        checked={selectedForHamali.includes(transaction.id)}
+                                        onCheckedChange={() => toggleHamaliSelection(transaction.id)}
+                                      />
+                                      <span className="text-sm">Hamali</span>
+                                    </div>
+                                  )}
+                                  {showTodayCalculator && (
+                                    <div className="flex items-center space-x-2">
+                                      <Checkbox
+                                        checked={selectedForToday.includes(transaction.id)}
+                                        onCheckedChange={() => toggleTodaySelection(transaction.id)}
+                                      />
+                                      <span className="text-sm">Today</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </TableCell>
+                            )}
+                            <TableCell>
+                              <div className="flex space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => viewTransaction(transaction)}
+                                >
+                                  <Eye size={16} className="mr-1" />
+                                  View
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteClick(transaction.id)}
+                                >
+                                  <Trash2 size={16} className="mr-1" />
+                                  Delete
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {filteredTransactions.length === 0 && (
           <div className="text-center py-12">
             <div className="text-gray-500 text-lg">No transactions found</div>
-            <p className="text-sm text-gray-400 mt-2">Try adjusting your search criteria</p>
           </div>
         )}
 
         {/* Transaction Details Dialog */}
-        <Dialog open={!!selectedTransaction} onOpenChange={() => setSelectedTransaction(null)}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>Transaction Details</DialogTitle>
-            </DialogHeader>
-            {selectedTransaction && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="font-medium">Customer Name:</label>
-                    <p>{selectedTransaction.name}</p>
-                  </div>
-                  <div>
-                    <label className="font-medium">Village:</label>
-                    <p>{selectedTransaction.village}</p>
-                  </div>
-                  <div>
-                    <label className="font-medium">Phone:</label>
-                    <p>{selectedTransaction.phone}</p>
-                  </div>
-                  <div>
-                    <label className="font-medium">Date & Time:</label>
-                    <p>{selectedTransaction.date} at {selectedTransaction.time}</p>
-                  </div>
+        {showTransactionDialog && selectedTransaction && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-4xl max-h-[80vh] overflow-y-auto">
+              <CardHeader>
+                <CardTitle>Transaction Details</CardTitle>
+                <div className="text-sm text-gray-600">
+                  {selectedTransaction.name} • {selectedTransaction.village} • {selectedTransaction.date} at {selectedTransaction.time}
                 </div>
-                
-                <div>
-                  <label className="font-medium">Items:</label>
-                  <div className="mt-2 border rounded">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="text-left p-2">Item</th>
-                          <th className="text-center p-2">Quantity</th>
-                          <th className="text-center p-2">Rate</th>
-                          <th className="text-center p-2">Total</th>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div>
+                      <div className="text-sm text-gray-600">Phone</div>
+                      <div className="font-medium">{selectedTransaction.phone}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600">Total Amount</div>
+                      <div className="font-bold">₹{selectedTransaction.totalAmount.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600">Paid Amount</div>
+                      <div className="font-bold text-green-600">₹{selectedTransaction.paidAmount.toFixed(2)}</div>
+                    </div>
+                    <div>
+                      <div className="text-sm text-gray-600">Due Amount</div>
+                      <div className="font-bold text-red-600">₹{selectedTransaction.dueAmount.toFixed(2)}</div>
+                    </div>
+                  </div>
+                  
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-gray-300">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border border-gray-300 p-3 text-left">Item</th>
+                          <th className="border border-gray-300 p-3 text-left">Rate</th>
+                          <th className="border border-gray-300 p-3 text-left">Quantity</th>
+                          <th className="border border-gray-300 p-3 text-left">Total</th>
                         </tr>
                       </thead>
                       <tbody>
                         {selectedTransaction.items.map((item, index) => (
-                          <tr key={index} className="border-t">
-                            <td className="p-2">{item.name}</td>
-                            <td className="p-2 text-center">{item.quantity}</td>
-                            <td className="p-2 text-center">₹{item.rate.toFixed(2)}</td>
-                            <td className="p-2 text-center">₹{item.total.toFixed(2)}</td>
+                          <tr key={index}>
+                            <td className="border border-gray-300 p-3">{item.name}</td>
+                            <td className="border border-gray-300 p-3">₹{item.rate.toFixed(2)}</td>
+                            <td className="border border-gray-300 p-3">{item.quantity}</td>
+                            <td className="border border-gray-300 p-3">₹{item.total.toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-3 gap-4 pt-4 border-t">
-                  <div>
-                    <label className="font-medium">Total Amount:</label>
-                    <p className="text-lg font-bold">₹{selectedTransaction.totalAmount.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <label className="font-medium">Paid Amount:</label>
-                    <p className="text-lg font-bold text-green-600">₹{selectedTransaction.paidAmount.toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <label className="font-medium">Due Amount:</label>
-                    <p className="text-lg font-bold text-red-600">₹{selectedTransaction.dueAmount.toFixed(2)}</p>
-                  </div>
+                
+                <div className="mt-6 flex justify-end">
+                  <Button onClick={() => setShowTransactionDialog(false)}>
+                    Close
+                  </Button>
                 </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Delete Confirmation Dialog */}
-        <AlertDialog open={!!transactionToDelete} onOpenChange={() => setTransactionToDelete(null)}>
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Delete Transaction</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to delete this transaction? This will restore the inventory items back to stock.
+                Are you sure you want to delete this transaction? It will be moved to the bin for 7 days.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={deleteTransaction}>Delete & Restore Inventory</AlertDialogAction>
+              <AlertDialogAction onClick={handleConfirmDelete}>
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* Inventory Restore Dialog */}
+        <AlertDialog open={showInventoryRestoreDialog} onOpenChange={setShowInventoryRestoreDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Restore Inventory</AlertDialogTitle>
+              <AlertDialogDescription>
+                Do you want to restore the inventory items used in this transaction back to the inventory?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => transactionToDelete && deleteTransaction(transactionToDelete, false)}>
+                No
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => transactionToDelete && deleteTransaction(transactionToDelete, true)}>
+                Restore
+              </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

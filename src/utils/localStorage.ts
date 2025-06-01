@@ -74,28 +74,6 @@ export interface WorkerRecord {
   salary: number;
   totalDue: number;
   date: string;
-  loans?: Array<{
-    id: string;
-    amount: number;
-    date: string;
-    reason: string;
-    status: 'active' | 'paid';
-  }>;
-  payments?: Array<{
-    id: string;
-    type: 'salary' | 'loan_repayment';
-    amount: number;
-    date: string;
-    description?: string;
-    loanId?: string;
-  }>;
-  paymentHistory?: Array<{
-    id: string;
-    type: 'salary' | 'borrow' | 'repay';
-    amount: number;
-    date: string;
-    description?: string;
-  }>;
 }
 
 export interface DeletedTransaction {

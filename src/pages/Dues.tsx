@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Search } from 'lucide-react';
+import { Plus, DollarSign } from 'lucide-react';
 import { 
   getTransactions, 
   saveTransactions, 
@@ -26,7 +27,6 @@ const Dues = () => {
   const [customDues, setCustomDues] = useState<DueRecord[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [paymentAmounts, setPaymentAmounts] = useState<{[key: string]: string}>({});
-  const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     customerName: '',
     type: 'custom' as 'bran' | 'rice' | 'custom',
@@ -36,29 +36,19 @@ const Dues = () => {
   });
 
   useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = () => {
+    // Load transaction dues
     const transactions = getTransactions();
     const dueTransactions = transactions.filter(t => t.dueAmount > 0);
     setTransactionDues(dueTransactions);
     
+    // Load stock dues
     const stockTransactions = getStockTransactions();
     const stockDueTransactions = stockTransactions.filter(t => t.dueAmount > 0);
     setStockDues(stockDueTransactions);
     
+    // Load custom dues
     setCustomDues(getDues());
-  };
-
-  const filterBySearch = (items: any[], searchField: string) => {
-    if (!searchTerm) return items;
-    return items.filter(item => 
-      item[searchField]?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.phoneNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  };
+  }, []);
 
   const handleAddDue = (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +98,7 @@ const Dues = () => {
     });
     
     saveTransactions(updatedTransactions);
-    loadData();
+    setTransactionDues(updatedTransactions.filter(t => t.dueAmount > 0));
     
     toast({
       title: "Payment Processed",
@@ -132,7 +122,7 @@ const Dues = () => {
     });
     
     saveStockTransactions(updatedTransactions);
-    loadData();
+    setStockDues(updatedTransactions.filter(t => t.dueAmount > 0));
     
     toast({
       title: "Payment Processed",
@@ -158,13 +148,6 @@ const Dues = () => {
     return transactionTotal + stockTotal + customTotal;
   };
 
-  const getCustomerDueAmount = (phone: string) => {
-    const transactionDue = transactionDues.find(t => t.phone === phone)?.dueAmount || 0;
-    const stockDue = stockDues.find(t => t.phoneNumber === phone)?.dueAmount || 0;
-    const customDue = customDues.filter(d => d.customerName.includes(phone)).reduce((sum, d) => sum + d.amount, 0);
-    return transactionDue + stockDue + customDue;
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -177,21 +160,6 @@ const Dues = () => {
           </Button>
         </div>
 
-        {/* Search Bar */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search customers by name or phone..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Summary */}
         <Card className="mb-6">
           <CardContent className="p-4">
@@ -201,15 +169,15 @@ const Dues = () => {
                 <div className="text-sm text-gray-600">Total Dues</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">{filterBySearch(transactionDues, 'name').length}</div>
+                <div className="text-2xl font-bold text-orange-600">{transactionDues.length}</div>
                 <div className="text-sm text-gray-600">Transaction Dues</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{filterBySearch(stockDues, 'customerName').length}</div>
+                <div className="text-2xl font-bold text-blue-600">{stockDues.length}</div>
                 <div className="text-sm text-gray-600">Stock Dues</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{filterBySearch(customDues, 'customerName').length}</div>
+                <div className="text-2xl font-bold text-purple-600">{customDues.length}</div>
                 <div className="text-sm text-gray-600">Custom Dues</div>
               </div>
             </div>
@@ -306,17 +274,12 @@ const Dues = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {filterBySearch(transactionDues, 'name').map((transaction) => (
+                  {transactionDues.map((transaction) => (
                     <div key={transaction.id} className="flex justify-between items-center p-4 bg-orange-50 rounded-lg border">
                       <div className="flex-1">
                         <div className="font-medium">{transaction.name}</div>
                         <div className="text-sm text-gray-600">
                           {transaction.village} • {transaction.phone} • {transaction.date}
-                          {getCustomerDueAmount(transaction.phone) > transaction.dueAmount && (
-                            <Badge variant="destructive" className="ml-2">
-                              Total Due: ₹{getCustomerDueAmount(transaction.phone).toFixed(2)}
-                            </Badge>
-                          )}
                         </div>
                         <div className="text-sm">
                           Total: ₹{transaction.totalAmount.toFixed(2)} • 
@@ -336,7 +299,7 @@ const Dues = () => {
                             ...paymentAmounts,
                             [transaction.id]: e.target.value
                           })}
-                          className="w-32"
+                          className="w-32 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                         <Button
                           size="sm"
@@ -354,8 +317,8 @@ const Dues = () => {
                       </div>
                     </div>
                   ))}
-                  {filterBySearch(transactionDues, 'name').length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No transaction dues found</div>
+                  {transactionDues.length === 0 && (
+                    <div className="text-center text-gray-500 py-4">No transaction dues</div>
                   )}
                 </div>
               </CardContent>
@@ -369,7 +332,7 @@ const Dues = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {filterBySearch(stockDues, 'customerName').map((transaction) => (
+                  {stockDues.map((transaction) => (
                     <div key={transaction.id} className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border">
                       <div className="flex-1">
                         <div className="font-medium">{transaction.customerName}</div>
@@ -395,7 +358,7 @@ const Dues = () => {
                             ...paymentAmounts,
                             [transaction.id]: e.target.value
                           })}
-                          className="w-32"
+                          className="w-32 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                         <Button
                           size="sm"
@@ -413,8 +376,8 @@ const Dues = () => {
                       </div>
                     </div>
                   ))}
-                  {filterBySearch(stockDues, 'customerName').length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No stock dues found</div>
+                  {stockDues.length === 0 && (
+                    <div className="text-center text-gray-500 py-4">No stock dues</div>
                   )}
                 </div>
               </CardContent>
@@ -428,7 +391,7 @@ const Dues = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {filterBySearch(customDues, 'customerName').map((due) => (
+                  {customDues.map((due) => (
                     <div key={due.id} className="flex justify-between items-center p-4 bg-purple-50 rounded-lg border">
                       <div className="flex-1">
                         <div className="font-medium">{due.customerName}</div>
@@ -451,8 +414,8 @@ const Dues = () => {
                       </div>
                     </div>
                   ))}
-                  {filterBySearch(customDues, 'customerName').length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No custom dues found</div>
+                  {customDues.length === 0 && (
+                    <div className="text-center text-gray-500 py-4">No custom dues</div>
                   )}
                 </div>
               </CardContent>

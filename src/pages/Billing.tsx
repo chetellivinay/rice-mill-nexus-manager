@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
-import { AlertTriangle, ExternalLink } from 'lucide-react';
+import { AlertTriangle } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,15 +9,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Transaction, saveTransactions, getTransactions, getInventory, saveInventory, getDefaultRates, saveRates } from '@/utils/localStorage';
-import { getCustomerDueInfo } from '@/utils/dueUtils';
-import { getUniqueVillages } from '@/utils/duesChecker';
+import { checkDuesByPhone, getUniqueVillages } from '@/utils/duesChecker';
 import { toast } from '@/hooks/use-toast';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import DueDisplay from '@/components/DueDisplay';
 
 const Billing = () => {
   const [rates, setRates] = useState(getDefaultRates());
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showDueDialog, setShowDueDialog] = useState(false);
+  const [dueInfo, setDueInfo] = useState<any>(null);
+  const [includeOldDue, setIncludeOldDue] = useState(false);
   const [villages] = useState(getUniqueVillages());
   const [formData, setFormData] = useState({
     name: '',
@@ -47,6 +49,12 @@ const Billing = () => {
         phone: customerData.phoneNumber
       }));
       
+      // Check for dues if phone number exists
+      if (customerData.phoneNumber) {
+        const dues = checkDuesByPhone(customerData.phoneNumber);
+        setDueInfo(dues);
+      }
+      
       localStorage.removeItem('billingCustomerData');
     }
   }, []);
@@ -54,6 +62,14 @@ const Billing = () => {
   const handlePhoneInput = (value: string) => {
     const numericValue = value.replace(/\D/g, '').slice(0, 10);
     setFormData({...formData, phone: numericValue});
+    
+    // Check for dues when phone number is complete
+    if (numericValue.length === 10) {
+      const dues = checkDuesByPhone(numericValue);
+      setDueInfo(dues);
+    } else {
+      setDueInfo(null);
+    }
   };
 
   const handleRateChange = (item: string, value: number) => {
@@ -83,8 +99,11 @@ const Billing = () => {
     const extraTotal = calculateItemTotal(rates.extra, formData.extraQuantity);
 
     // Nukalu is subtracted from total as per requirement
-    return millingTotal + powderTotal + bigBagsTotal + smallBagsTotal + 
+    const currentBillTotal = millingTotal + powderTotal + bigBagsTotal + smallBagsTotal + 
            branBagsTotal + unloadingTotal + loadingTotal + extraTotal - nukaluTotal;
+    
+    // Add previous due if selected
+    return currentBillTotal + (includeOldDue && dueInfo ? dueInfo.totalDue : 0);
   };
 
   const totalAmount = calculateTotalAmount();
@@ -109,11 +128,33 @@ const Billing = () => {
       });
       return;
     }
+
+    // If there are dues and user hasn't decided, show due dialog
+    if (dueInfo && !showDueDialog) {
+      setShowDueDialog(true);
+      return;
+    }
     
     setShowConfirmDialog(true);
   };
 
+  const clearCustomerDues = (phoneNumber: string) => {
+    if (!phoneNumber) return;
+    
+    const transactions = getTransactions();
+    const updatedTransactions = transactions.map(transaction => {
+      if (transaction.phone === phoneNumber && transaction.dueAmount > 0) {
+        return { ...transaction, dueAmount: 0 };
+      }
+      return transaction;
+    });
+    
+    saveTransactions(updatedTransactions);
+  };
+
   const confirmSave = () => {
+    const currentBillTotal = calculateTotalAmount() - (includeOldDue && dueInfo ? dueInfo.totalDue : 0);
+    
     const transaction: Transaction = {
       id: Date.now().toString(),
       name: formData.name,
@@ -130,9 +171,9 @@ const Billing = () => {
         { name: 'Nukalu', rate: rates.nukalu, quantity: parseFloat(formData.nukaluQuantity) || 0, total: calculateItemTotal(rates.nukalu, formData.nukaluQuantity) },
         { name: 'Extra Charges', rate: rates.extra, quantity: parseFloat(formData.extraQuantity) || 0, total: calculateItemTotal(rates.extra, formData.extraQuantity) }
       ].filter(item => item.quantity > 0),
-      totalAmount,
+      totalAmount: includeOldDue ? totalAmount : currentBillTotal,
       paidAmount,
-      dueAmount,
+      dueAmount: includeOldDue ? dueAmount : (currentBillTotal - paidAmount),
       date: new Date().toLocaleDateString(),
       time: new Date().toLocaleTimeString()
     };
@@ -140,6 +181,15 @@ const Billing = () => {
     const transactions = getTransactions();
     transactions.push(transaction);
     saveTransactions(transactions);
+
+    // If old dues were included and fully paid, clear customer dues
+    if (includeOldDue && dueInfo && paidAmount >= totalAmount) {
+      clearCustomerDues(formData.phone);
+      toast({
+        title: "Dues Cleared",
+        description: "Customer's previous dues have been cleared"
+      });
+    }
 
     // Update inventory
     const inventory = getInventory();
@@ -178,15 +228,16 @@ const Billing = () => {
       paidAmount: ''
     });
 
+    setDueInfo(null);
+    setIncludeOldDue(false);
     setShowConfirmDialog(false);
+    setShowDueDialog(false);
     
     toast({
       title: "Success",
       description: "Transaction saved successfully",
     });
   };
-
-  const dueInfo = getCustomerDueInfo(formData.phone);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -199,6 +250,17 @@ const Billing = () => {
             <CardTitle>Customer Data Entry</CardTitle>
           </CardHeader>
           <CardContent>
+            {dueInfo && (
+              <Alert className="mb-4 border-orange-200 bg-orange-50">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>Previous Dues Found:</strong> This phone number has ₹{dueInfo.totalDue.toFixed(2)} 
+                  in outstanding dues from {dueInfo.transactionCount} transaction(s). 
+                  Last transaction: {dueInfo.lastTransactionDate}
+                </AlertDescription>
+              </Alert>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div>
                 <Label htmlFor="name">Name *</Label>
@@ -226,39 +288,21 @@ const Billing = () => {
               </div>
               <div>
                 <Label htmlFor="phone">Phone Number (10 digits)</Label>
-                <div className="space-y-2">
-                  <Input
-                    id="phone"
-                    value={formData.phone}
-                    onChange={(e) => handlePhoneInput(e.target.value)}
-                    placeholder="Enter 10-digit phone number"
-                    maxLength={10}
-                  />
-                  {formData.phone && (
-                    <div className="flex items-center gap-2">
-                      <DueDisplay phone={formData.phone} />
-                      {dueInfo && dueInfo.hasAnyDue && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => window.location.href = `/dues?search=${formData.phone}`}
-                        >
-                          <ExternalLink className="h-4 w-4 mr-1" />
-                          Manage Dues
-                        </Button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                <Input
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => handlePhoneInput(e.target.value)}
+                  placeholder="Enter 10-digit phone number"
+                  maxLength={10}
+                />
               </div>
             </div>
 
-            {dueInfo && dueInfo.hasAnyDue && (
-              <Alert className="mb-4 border-orange-200 bg-orange-50">
-                <AlertTriangle className="h-4 w-4 text-orange-600" />
-                <AlertDescription className="text-orange-800">
-                  <strong>Customer has outstanding dues:</strong> ₹{dueInfo.totalDue.toFixed(2)}. 
-                  Please handle dues separately in the Dues section or collect payment now.
+            {/* Previous Due Inclusion Option */}
+            {dueInfo && includeOldDue && (
+              <Alert className="mb-4 border-blue-200 bg-blue-50">
+                <AlertDescription className="text-blue-800">
+                  Previous due of ₹{dueInfo.totalDue.toFixed(2)} is included in the total amount.
                 </AlertDescription>
               </Alert>
             )}
@@ -354,6 +398,11 @@ const Billing = () => {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <strong>Total Amount: ₹{totalAmount.toFixed(2)}</strong>
+                  {includeOldDue && dueInfo && (
+                    <div className="text-sm text-gray-600">
+                      (Includes ₹{dueInfo.totalDue.toFixed(2)} previous due)
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="paidAmount">Paid Amount:</Label>
@@ -381,12 +430,46 @@ const Billing = () => {
           </CardContent>
         </Card>
 
+        {/* Due Payment Dialog */}
+        <AlertDialog open={showDueDialog} onOpenChange={setShowDueDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Previous Due Found</AlertDialogTitle>
+              <AlertDialogDescription>
+                This customer has a previous due of ₹{dueInfo?.totalDue.toFixed(2)}. 
+                Would you like to include this in the current bill?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setIncludeOldDue(false);
+                setShowDueDialog(false);
+                setShowConfirmDialog(true);
+              }}>
+                No, Bill Separately
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => {
+                setIncludeOldDue(true);
+                setShowDueDialog(false);
+                setShowConfirmDialog(true);
+              }}>
+                Yes, Include Previous Due
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>Confirm Save</AlertDialogTitle>
               <AlertDialogDescription>
-                Are you sure you want to save this transaction?
+                Are you sure you want to save this transaction? 
+                {includeOldDue && dueInfo && paidAmount >= totalAmount && (
+                  <div className="mt-2 p-2 bg-green-100 rounded">
+                    <strong>Note:</strong> Customer's previous dues will be cleared as they have paid the full amount.
+                  </div>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

@@ -1,43 +1,44 @@
-
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Minus, Package, Eye, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Plus, Package, Archive, Eye, Trash2 } from 'lucide-react';
 import { 
+  InventoryItem, 
+  StockItem, 
+  StockTransaction,
   getInventory, 
   saveInventory, 
   getStock, 
-  saveStock, 
-  getStockTransactions, 
-  saveStockTransactions, 
-  getDefaultStockRates, 
+  saveStock,
+  getStockTransactions,
+  saveStockTransactions,
+  getDefaultStockRates,
   saveStockRates,
-  InventoryItem,
-  StockItem,
-  StockTransaction 
+  addToBin 
 } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
-import InventoryMismatch from '@/components/InventoryMismatch';
 
 const Store = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
   const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
   const [stockRates, setStockRates] = useState<any>({});
-  const [showRecordSaleForm, setShowRecordSaleForm] = useState(false);
   const [newInventoryItem, setNewInventoryItem] = useState({ name: '', count: 0 });
   const [newStockItem, setNewStockItem] = useState({ name: '', kg25: 0, kg50: 0 });
-  const [saleForm, setSaleForm] = useState({
+  const [showSaleForm, setShowSaleForm] = useState(false);
+  const [selectedViewTransaction, setSelectedViewTransaction] = useState<StockTransaction | null>(null);
+  
+  const [saleFormData, setSaleFormData] = useState({
     customerName: '',
-    village: '',
     phoneNumber: '',
-    stockItem: '',
+    village: '',
+    stockBought: '',
     quantity: '',
     rate: '',
     paidAmount: ''
@@ -50,123 +51,142 @@ const Store = () => {
     setStockRates(getDefaultStockRates());
   }, []);
 
-  // Calculate total amount and due amount when form changes
-  const totalAmount = saleForm.quantity && saleForm.rate ? 
-    parseFloat(saleForm.quantity) * parseFloat(saleForm.rate) : 0;
-  const paidAmount = parseFloat(saleForm.paidAmount) || 0;
-  const dueAmount = totalAmount - paidAmount;
-
-  const updateInventoryCount = (itemName: string, newCount: number) => {
-    const updatedInventory = inventory.map(item =>
-      item.name === itemName
-        ? { ...item, count: Math.max(0, newCount) }
-        : item
-    );
+  const updateInventoryItem = (index: number, count: number) => {
+    const updatedInventory = [...inventory];
+    updatedInventory[index].count = Math.max(0, count);
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
   };
 
-  const updateStockCount = (itemName: string, type: 'kg25' | 'kg50', newCount: number) => {
-    const updatedStock = stock.map(item =>
-      item.name === itemName
-        ? { ...item, [type]: Math.max(0, newCount) }
-        : item
-    );
+  const addInventoryItem = () => {
+    if (!newInventoryItem.name.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter item name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const updatedInventory = [...inventory, { ...newInventoryItem }];
+    setInventory(updatedInventory);
+    saveInventory(updatedInventory);
+    setNewInventoryItem({ name: '', count: 0 });
+    
+    toast({
+      title: "Success",
+      description: "Inventory item added successfully"
+    });
+  };
+
+  const updateStockItem = (index: number, field: 'kg25' | 'kg50', value: number) => {
+    const updatedStock = [...stock];
+    updatedStock[index][field] = Math.max(0, value);
     setStock(updatedStock);
     saveStock(updatedStock);
   };
 
-  const addInventoryItem = () => {
-    if (newInventoryItem.name.trim()) {
-      const updatedInventory = [...inventory, newInventoryItem];
-      setInventory(updatedInventory);
-      saveInventory(updatedInventory);
-      setNewInventoryItem({ name: '', count: 0 });
-      toast({
-        title: "Success",
-        description: "Inventory item added successfully"
-      });
-    }
-  };
-
   const addStockItem = () => {
-    if (newStockItem.name.trim()) {
-      const updatedStock = [...stock, newStockItem];
-      setStock(updatedStock);
-      saveStock(updatedStock);
-      setNewStockItem({ name: '', kg25: 0, kg50: 0 });
+    if (!newStockItem.name.trim()) {
       toast({
-        title: "Success",
-        description: "Stock item added successfully"
+        title: "Error",
+        description: "Please enter stock item name",
+        variant: "destructive"
       });
+      return;
     }
+
+    const updatedStock = [...stock, { ...newStockItem }];
+    setStock(updatedStock);
+    saveStock(updatedStock);
+    setNewStockItem({ name: '', kg25: 0, kg50: 0 });
+    
+    toast({
+      title: "Success",
+      description: "Stock item added successfully"
+    });
   };
 
-  const recordSale = () => {
-    if (saleForm.customerName && saleForm.stockItem && saleForm.quantity && saleForm.rate) {
-      const newTransaction: StockTransaction = {
-        id: Date.now().toString(),
-        customerName: saleForm.customerName,
-        phoneNumber: saleForm.phoneNumber,
-        village: saleForm.village,
-        stockBought: saleForm.stockItem,
-        quantity: parseFloat(saleForm.quantity),
-        rate: parseFloat(saleForm.rate),
-        totalAmount,
-        paidAmount,
-        dueAmount,
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString()
-      };
+  const handleStockSale = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!saleFormData.customerName || !saleFormData.phoneNumber || !saleFormData.stockBought) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
 
-      const updatedTransactions = [...stockTransactions, newTransaction];
+    const quantity = parseFloat(saleFormData.quantity) || 0;
+    const rate = parseFloat(saleFormData.rate) || 0;
+    const totalAmount = quantity * rate;
+    const paidAmount = parseFloat(saleFormData.paidAmount) || 0;
+    const dueAmount = totalAmount - paidAmount;
+
+    const newTransaction: StockTransaction = {
+      id: Date.now().toString(),
+      customerName: saleFormData.customerName,
+      phoneNumber: saleFormData.phoneNumber,
+      village: saleFormData.village,
+      stockBought: saleFormData.stockBought,
+      quantity,
+      rate,
+      totalAmount,
+      paidAmount,
+      dueAmount,
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString()
+    };
+
+    const updatedTransactions = [...stockTransactions, newTransaction];
+    setStockTransactions(updatedTransactions);
+    saveStockTransactions(updatedTransactions);
+
+    setSaleFormData({
+      customerName: '',
+      phoneNumber: '',
+      village: '',
+      stockBought: '',
+      quantity: '',
+      rate: '',
+      paidAmount: ''
+    });
+    setShowSaleForm(false);
+
+    toast({
+      title: "Success",
+      description: "Stock sale recorded successfully"
+    });
+  };
+
+  const deleteStockTransaction = (id: string) => {
+    const transactionToDelete = stockTransactions.find(t => t.id === id);
+    if (transactionToDelete) {
+      addToBin('transaction', transactionToDelete);
+      const updatedTransactions = stockTransactions.filter(t => t.id !== id);
       setStockTransactions(updatedTransactions);
       saveStockTransactions(updatedTransactions);
-
-      // Update stock count
-      const quantity = parseFloat(saleForm.quantity);
-      const updatedStock = stock.map(item => {
-        if (item.name === saleForm.stockItem) {
-          if (quantity === 25) {
-            return { ...item, kg25: Math.max(0, item.kg25 - 1) };
-          } else if (quantity === 50) {
-            return { ...item, kg50: Math.max(0, item.kg50 - 1) };
-          }
-        }
-        return item;
-      });
-      setStock(updatedStock);
-      saveStock(updatedStock);
-
-      setSaleForm({
-        customerName: '',
-        village: '',
-        phoneNumber: '',
-        stockItem: '',
-        quantity: '',
-        rate: '',
-        paidAmount: ''
-      });
-      setShowRecordSaleForm(false);
-
+      
       toast({
-        title: "Success",
-        description: "Stock sale recorded successfully"
+        title: "Transaction Deleted",
+        description: "Transaction moved to bin"
       });
     }
   };
 
-  const updateStockRate = (itemName: string, newRate: number) => {
-    const updatedRates = { ...stockRates, [itemName]: newRate };
+  const updateStockRate = (stockName: string, rate: number) => {
+    const updatedRates = { ...stockRates, [stockName]: rate };
     setStockRates(updatedRates);
     saveStockRates(updatedRates);
   };
 
-  const calculateTotalValue = () => {
+  const getTotalStockValuation = () => {
     return stock.reduce((total, item) => {
       const rate = stockRates[item.name] || 0;
-      const totalWeight = (item.kg25 * 25) + (item.kg50 * 50);
-      return total + (totalWeight * rate);
+      const weight = (item.kg25 * 25) + (item.kg50 * 50);
+      return total + (weight * rate);
     }, 0);
   };
 
@@ -178,296 +198,345 @@ const Store = () => {
 
         <Tabs defaultValue="inventory" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="inventory">Inventory</TabsTrigger>
-            <TabsTrigger value="stock">Stock</TabsTrigger>
+            <TabsTrigger value="inventory" className="flex items-center space-x-2">
+              <Package size={16} />
+              <span>Inventory</span>
+            </TabsTrigger>
+            <TabsTrigger value="stock" className="flex items-center space-x-2">
+              <Archive size={16} />
+              <span>Stock</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="inventory">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center gap-2">
-                  <Package className="h-5 w-5 text-blue-500" />
-                  <CardTitle>Inventory Management</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
-                  {inventory.map((item) => (
-                    <div key={item.name} className="text-center">
-                      <h3 className="font-medium text-lg mb-2">{item.name}</h3>
-                      <div className="text-3xl font-bold text-blue-600 mb-4">{item.count}</div>
-                      <div className="space-y-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          value={item.count}
-                          onChange={(e) => updateInventoryCount(item.name, parseInt(e.target.value) || 0)}
-                          className="text-center"
-                        />
-                        <div className="flex items-center justify-center space-x-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => updateInventoryCount(item.name, item.count - 1)}
-                          >
-                            <Minus className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => updateInventoryCount(item.name, item.count + 1)}
-                          >
-                            <Plus className="h-4 w-4" />
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <Package size={20} />
+                    <span>Inventory Management</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {inventory.map((item, index) => (
+                      <Card key={index} className="border">
+                        <CardContent className="p-4">
+                          <div className="text-center">
+                            <h3 className="font-bold text-lg mb-2">{item.name}</h3>
+                            <div className="text-3xl font-bold text-blue-600 mb-4">
+                              {item.count}
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateInventoryItem(index, item.count - 1)}
+                              >
+                                -
+                              </Button>
+                              <Input
+                                type="number"
+                                min="0"
+                                value={item.count}
+                                onChange={(e) => updateInventoryItem(index, parseInt(e.target.value) || 0)}
+                                className="w-20 text-center [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateInventoryItem(index, item.count + 1)}
+                              >
+                                +
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+
+                  <Card className="mt-6">
+                    <CardHeader>
+                      <CardTitle>Add New Inventory Item</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex space-x-4">
+                        <div className="flex-1">
+                          <Label htmlFor="newItemName">Item Name</Label>
+                          <Input
+                            id="newItemName"
+                            value={newInventoryItem.name}
+                            onChange={(e) => setNewInventoryItem({...newInventoryItem, name: e.target.value})}
+                            placeholder="Enter item name"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="newItemCount">Initial Count</Label>
+                          <Input
+                            id="newItemCount"
+                            type="number"
+                            min="0"
+                            value={newInventoryItem.count}
+                            onChange={(e) => setNewInventoryItem({...newInventoryItem, count: parseInt(e.target.value) || 0})}
+                            className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button onClick={addInventoryItem}>
+                            <Plus size={16} className="mr-2" />
+                            Add Item
                           </Button>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="border-t pt-6">
-                  <h3 className="text-lg font-semibold mb-4">Add New Inventory Item</h3>
-                  <div className="flex items-end space-x-4">
-                    <div className="flex-1">
-                      <Label htmlFor="itemName">Item Name</Label>
-                      <Input
-                        id="itemName"
-                        placeholder="Enter item name"
-                        value={newInventoryItem.name}
-                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="w-32">
-                      <Label htmlFor="initialCount">Initial Count</Label>
-                      <Input
-                        id="initialCount"
-                        type="number"
-                        min="0"
-                        value={newInventoryItem.count}
-                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, count: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
-                    <Button onClick={addInventoryItem} className="bg-slate-900 hover:bg-slate-800">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Item
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <div className="mt-6">
-              <InventoryMismatch />
+                    </CardContent>
+                  </Card>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
 
           <TabsContent value="stock">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Package className="h-5 w-5 text-green-500" />
-                    <CardTitle>Stock Management</CardTitle>
+            <div className="space-y-6">
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle className="flex items-center space-x-2">
+                      <Archive size={20} />
+                      <span>Stock Management</span>
+                    </CardTitle>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-600">Total Valuation</div>
+                      <div className="text-2xl font-bold text-green-600">₹{getTotalStockValuation().toFixed(2)}</div>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-sm text-gray-600">Total Valuation</div>
-                    <div className="text-2xl font-bold text-green-600">₹{calculateTotalValue().toFixed(2)}</div>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left p-3 font-medium">Stock Item</th>
-                        <th className="text-center p-3 font-medium">25kg Packages</th>
-                        <th className="text-center p-3 font-medium">50kg Packages</th>
-                        <th className="text-center p-3 font-medium">Total Weight (kg)</th>
-                        <th className="text-center p-3 font-medium">Rate per kg (₹)</th>
-                        <th className="text-center p-3 font-medium">Total Value (₹)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stock.map((item) => {
-                        const totalWeight = (item.kg25 * 25) + (item.kg50 * 50);
-                        const rate = stockRates[item.name] || 0;
-                        const totalValue = totalWeight * rate;
-                        
-                        return (
-                          <tr key={item.name} className="border-b hover:bg-gray-50">
-                            <td className="p-3 font-medium">{item.name}</td>
-                            <td className="p-3 text-center">
-                              <div className="flex items-center justify-center space-x-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg25', item.kg25 - 1)}
-                                >
-                                  <Minus className="h-3 w-3" />
-                                </Button>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse border border-gray-300">
+                      <thead>
+                        <tr className="bg-gray-100">
+                          <th className="border border-gray-300 p-3 text-left">Stock Item</th>
+                          <th className="border border-gray-300 p-3 text-center">25kg Packages</th>
+                          <th className="border border-gray-300 p-3 text-center">50kg Packages</th>
+                          <th className="border border-gray-300 p-3 text-center">Total Weight (kg)</th>
+                          <th className="border border-gray-300 p-3 text-center">Rate per kg (₹)</th>
+                          <th className="border border-gray-300 p-3 text-center">Total Value (₹)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stock.map((item, index) => {
+                          const totalWeight = (item.kg25 * 25) + (item.kg50 * 50);
+                          const rate = stockRates[item.name] || 0;
+                          const totalValue = totalWeight * rate;
+                          
+                          return (
+                            <tr key={index}>
+                              <td className="border border-gray-300 p-3 font-medium">{item.name}</td>
+                              <td className="border border-gray-300 p-3">
+                                <div className="flex items-center justify-center space-x-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateStockItem(index, 'kg25', item.kg25 - 1)}
+                                  >
+                                    -
+                                  </Button>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={item.kg25}
+                                    onChange={(e) => updateStockItem(index, 'kg25', parseInt(e.target.value) || 0)}
+                                    className="w-20 text-center [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateStockItem(index, 'kg25', item.kg25 + 1)}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
+                              </td>
+                              <td className="border border-gray-300 p-3">
+                                <div className="flex items-center justify-center space-x-2">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateStockItem(index, 'kg50', item.kg50 - 1)}
+                                  >
+                                    -
+                                  </Button>
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    value={item.kg50}
+                                    onChange={(e) => updateStockItem(index, 'kg50', parseInt(e.target.value) || 0)}
+                                    className="w-20 text-center [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                  />
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateStockItem(index, 'kg50', item.kg50 + 1)}
+                                  >
+                                    +
+                                  </Button>
+                                </div>
+                              </td>
+                              <td className="border border-gray-300 p-3 text-center font-bold">
+                                {totalWeight} kg
+                              </td>
+                              <td className="border border-gray-300 p-3">
                                 <Input
                                   type="number"
                                   min="0"
-                                  value={item.kg25}
-                                  onChange={(e) => updateStockCount(item.name, 'kg25', parseInt(e.target.value) || 0)}
-                                  className="w-16 text-center"
+                                  step="0.01"
+                                  value={rate}
+                                  onChange={(e) => updateStockRate(item.name, parseFloat(e.target.value) || 0)}
+                                  className="w-24 text-center [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg25', item.kg25 + 1)}
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </td>
-                            <td className="p-3 text-center">
-                              <div className="flex items-center justify-center space-x-2">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg50', item.kg50 - 1)}
-                                >
-                                  <Minus className="h-3 w-3" />
-                                </Button>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  value={item.kg50}
-                                  onChange={(e) => updateStockCount(item.name, 'kg50', parseInt(e.target.value) || 0)}
-                                  className="w-16 text-center"
-                                />
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg50', item.kg50 + 1)}
-                                >
-                                  <Plus className="h-3 w-3" />
-                                </Button>
-                              </div>
-                            </td>
-                            <td className="p-3 text-center font-medium">{totalWeight} kg</td>
-                            <td className="p-3 text-center">
-                              <Input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={rate}
-                                onChange={(e) => updateStockRate(item.name, parseFloat(e.target.value) || 0)}
-                                className="w-16 text-center"
-                              />
-                            </td>
-                            <td className="p-3 text-center font-bold text-green-600">₹{totalValue.toFixed(2)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="mt-6 border-t pt-6">
-                  <h3 className="text-lg font-semibold mb-4">Add New Stock Item</h3>
-                  <div className="flex items-end space-x-4">
-                    <div className="flex-1">
-                      <Label htmlFor="stockName">Stock Item Name</Label>
-                      <Input
-                        id="stockName"
-                        placeholder="Enter stock name"
-                        value={newStockItem.name}
-                        onChange={(e) => setNewStockItem({ ...newStockItem, name: e.target.value })}
-                      />
-                    </div>
-                    <div className="w-32">
-                      <Label htmlFor="kg25Packages">25kg Packages</Label>
-                      <Input
-                        id="kg25Packages"
-                        type="number"
-                        min="0"
-                        value={newStockItem.kg25}
-                        onChange={(e) => setNewStockItem({ ...newStockItem, kg25: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
-                    <div className="w-32">
-                      <Label htmlFor="kg50Packages">50kg Packages</Label>
-                      <Input
-                        id="kg50Packages"
-                        type="number"
-                        min="0"
-                        value={newStockItem.kg50}
-                        onChange={(e) => setNewStockItem({ ...newStockItem, kg50: parseInt(e.target.value) || 0 })}
-                      />
-                    </div>
-                    <Button onClick={addStockItem} className="bg-slate-900 hover:bg-slate-800">
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Stock
-                    </Button>
+                              </td>
+                              <td className="border border-gray-300 p-3 text-center font-bold text-green-600">
+                                ₹{totalValue.toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
 
-                <div className="mt-8 border-t pt-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Stock Sales</h3>
-                    <Button 
-                      onClick={() => setShowRecordSaleForm(true)}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
+                  <Card className="mt-6">
+                    <CardHeader>
+                      <CardTitle>Add New Stock Item</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div>
+                          <Label htmlFor="newStockName">Stock Item Name</Label>
+                          <Input
+                            id="newStockName"
+                            value={newStockItem.name}
+                            onChange={(e) => setNewStockItem({...newStockItem, name: e.target.value})}
+                            placeholder="Enter stock name"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="newStock25">25kg Packages</Label>
+                          <Input
+                            id="newStock25"
+                            type="number"
+                            min="0"
+                            value={newStockItem.kg25}
+                            onChange={(e) => setNewStockItem({...newStockItem, kg25: parseInt(e.target.value) || 0})}
+                            className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="newStock50">50kg Packages</Label>
+                          <Input
+                            id="newStock50"
+                            type="number"
+                            min="0"
+                            value={newStockItem.kg50}
+                            onChange={(e) => setNewStockItem({...newStockItem, kg50: parseInt(e.target.value) || 0})}
+                            className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                        </div>
+                        <div className="flex items-end">
+                          <Button onClick={addStockItem} className="w-full">
+                            <Plus size={16} className="mr-2" />
+                            Add Stock
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </CardContent>
+              </Card>
+
+              {/* Stock Sales Section */}
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle>Stock Sales</CardTitle>
+                    <Button onClick={() => setShowSaleForm(true)} className="bg-green-600 hover:bg-green-700">
+                      <Plus size={20} className="mr-2" />
                       Record Sale
                     </Button>
                   </div>
-
-                  {showRecordSaleForm && (
+                </CardHeader>
+                <CardContent>
+                  {/* Stock Sale Form */}
+                  {showSaleForm && (
                     <Card className="mb-6">
-                      <CardContent className="p-4">
-                        <h3 className="text-lg font-semibold mb-4">Record Stock Sale</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <CardHeader>
+                        <CardTitle>Record Stock Sale</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <form onSubmit={handleStockSale} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <Label htmlFor="customerName">Customer Name *</Label>
                             <Input
                               id="customerName"
-                              value={saleForm.customerName}
-                              onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })}
+                              required
+                              value={saleFormData.customerName}
+                              onChange={(e) => setSaleFormData({...saleFormData, customerName: e.target.value})}
                             />
                           </div>
                           <div>
                             <Label htmlFor="phoneNumber">Phone Number *</Label>
                             <Input
                               id="phoneNumber"
-                              value={saleForm.phoneNumber}
-                              onChange={(e) => setSaleForm({ ...saleForm, phoneNumber: e.target.value })}
+                              type="tel"
+                              required
+                              maxLength={10}
+                              pattern="[0-9]{10}"
+                              value={saleFormData.phoneNumber}
+                              onChange={(e) => {
+                                const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                setSaleFormData({...saleFormData, phoneNumber: value});
+                              }}
                             />
                           </div>
                           <div>
                             <Label htmlFor="village">Village</Label>
                             <Input
                               id="village"
-                              value={saleForm.village}
-                              onChange={(e) => setSaleForm({ ...saleForm, village: e.target.value })}
+                              value={saleFormData.village}
+                              onChange={(e) => setSaleFormData({...saleFormData, village: e.target.value})}
                             />
                           </div>
                           <div>
-                            <Label htmlFor="stockItem">Stock Item *</Label>
-                            <Select value={saleForm.stockItem} onValueChange={(value) => setSaleForm({ ...saleForm, stockItem: value })}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select Stock Item" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {stock.map((item) => (
-                                  <SelectItem key={item.name} value={item.name}>
-                                    {item.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <Label htmlFor="stockBought">Stock Item *</Label>
+                            <select
+                              id="stockBought"
+                              required
+                              value={saleFormData.stockBought}
+                              onChange={(e) => {
+                                const stockName = e.target.value;
+                                const rate = stockRates[stockName] || 0;
+                                setSaleFormData({...saleFormData, stockBought: stockName, rate: rate.toString()});
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                            >
+                              <option value="">Select Stock Item</option>
+                              {stock.map((item, index) => (
+                                <option key={index} value={item.name}>{item.name}</option>
+                              ))}
+                            </select>
                           </div>
                           <div>
                             <Label htmlFor="quantity">Quantity (kg) *</Label>
                             <Input
                               id="quantity"
                               type="number"
-                              value={saleForm.quantity}
-                              onChange={(e) => setSaleForm({ ...saleForm, quantity: e.target.value })}
+                              step="0.01"
+                              min="0"
+                              required
+                              value={saleFormData.quantity}
+                              onChange={(e) => setSaleFormData({...saleFormData, quantity: e.target.value})}
+                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                           </div>
                           <div>
@@ -476,8 +545,11 @@ const Store = () => {
                               id="rate"
                               type="number"
                               step="0.01"
-                              value={saleForm.rate}
-                              onChange={(e) => setSaleForm({ ...saleForm, rate: e.target.value })}
+                              min="0"
+                              required
+                              value={saleFormData.rate}
+                              onChange={(e) => setSaleFormData({...saleFormData, rate: e.target.value})}
+                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                           </div>
                           <div>
@@ -486,95 +558,155 @@ const Store = () => {
                               id="paidAmount"
                               type="number"
                               step="0.01"
-                              value={saleForm.paidAmount}
-                              onChange={(e) => setSaleForm({ ...saleForm, paidAmount: e.target.value })}
+                              min="0"
+                              value={saleFormData.paidAmount}
+                              onChange={(e) => setSaleFormData({...saleFormData, paidAmount: e.target.value})}
+                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                           </div>
-                        </div>
-
-                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <Label className="font-medium">Total Amount:</Label>
-                              <p className="text-lg font-bold">₹{totalAmount.toFixed(2)}</p>
+                          <div className="md:col-span-2">
+                            <div className="text-lg font-semibold">
+                              Total Amount: ₹{((parseFloat(saleFormData.quantity) || 0) * (parseFloat(saleFormData.rate) || 0)).toFixed(2)}
                             </div>
-                            <div>
-                              <Label className="font-medium text-green-600">Paid Amount:</Label>
-                              <p className="text-lg font-bold text-green-600">₹{paidAmount.toFixed(2)}</p>
-                            </div>
-                            <div>
-                              <Label className="font-medium text-red-600">Due Amount:</Label>
-                              <p className="text-lg font-bold text-red-600">₹{dueAmount.toFixed(2)}</p>
+                            <div className="text-lg font-semibold text-red-600">
+                              Due Amount: ₹{Math.max(0, ((parseFloat(saleFormData.quantity) || 0) * (parseFloat(saleFormData.rate) || 0)) - (parseFloat(saleFormData.paidAmount) || 0)).toFixed(2)}
                             </div>
                           </div>
-                        </div>
-
-                        <div className="flex space-x-2 mt-4">
-                          <Button onClick={recordSale} className="bg-green-600 hover:bg-green-700">
-                            Record Sale
-                          </Button>
-                          <Button variant="outline" onClick={() => setShowRecordSaleForm(false)}>
-                            Cancel
-                          </Button>
-                        </div>
+                          <div className="flex space-x-2 md:col-span-2">
+                            <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                              Record Sale
+                            </Button>
+                            <Button type="button" variant="outline" onClick={() => setShowSaleForm(false)}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </form>
                       </CardContent>
                     </Card>
                   )}
 
+                  {/* Stock Transactions Table */}
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse">
+                    <table className="w-full border-collapse border border-gray-300">
                       <thead>
-                        <tr className="border-b bg-gray-50">
-                          <th className="text-left p-3 font-medium">Time</th>
-                          <th className="text-left p-3 font-medium">Customer</th>
-                          <th className="text-left p-3 font-medium">Village</th>
-                          <th className="text-left p-3 font-medium">Stock</th>
-                          <th className="text-center p-3 font-medium">Amount</th>
-                          <th className="text-center p-3 font-medium">Due</th>
-                          <th className="text-center p-3 font-medium">Actions</th>
+                        <tr className="bg-gray-100">
+                          <th className="border border-gray-300 p-3 text-left">Time</th>
+                          <th className="border border-gray-300 p-3 text-left">Customer</th>
+                          <th className="border border-gray-300 p-3 text-left">Village</th>
+                          <th className="border border-gray-300 p-3 text-left">Stock</th>
+                          <th className="border border-gray-300 p-3 text-center">Amount</th>
+                          <th className="border border-gray-300 p-3 text-center">Due</th>
+                          <th className="border border-gray-300 p-3 text-center">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {stockTransactions.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="text-center py-8 text-gray-500">
-                              No stock sales recorded yet
+                        {stockTransactions.map((transaction) => (
+                          <tr key={transaction.id}>
+                            <td className="border border-gray-300 p-3">
+                              <div className="text-sm">
+                                <div>{transaction.date}</div>
+                                <div className="text-gray-600">{transaction.time}</div>
+                              </div>
+                            </td>
+                            <td className="border border-gray-300 p-3">
+                              <div>
+                                <div className="font-medium">{transaction.customerName}</div>
+                                <div className="text-sm text-gray-600">{transaction.phoneNumber}</div>
+                              </div>
+                            </td>
+                            <td className="border border-gray-300 p-3">{transaction.village}</td>
+                            <td className="border border-gray-300 p-3">
+                              <div>
+                                <div className="font-medium">{transaction.stockBought}</div>
+                                <div className="text-sm text-gray-600">{transaction.quantity}kg @ ₹{transaction.rate}/kg</div>
+                              </div>
+                            </td>
+                            <td className="border border-gray-300 p-3 text-center">
+                              ₹{transaction.totalAmount.toFixed(2)}
+                            </td>
+                            <td className="border border-gray-300 p-3 text-center">
+                              {transaction.dueAmount > 0 ? (
+                                <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                              ) : (
+                                <Badge variant="default">Paid</Badge>
+                              )}
+                            </td>
+                            <td className="border border-gray-300 p-3 text-center">
+                              <div className="flex space-x-2 justify-center">
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button size="sm" variant="outline" onClick={() => setSelectedViewTransaction(transaction)}>
+                                      <Eye size={16} />
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>Stock Transaction Details</DialogTitle>
+                                    </DialogHeader>
+                                    {selectedViewTransaction && (
+                                      <div className="space-y-4">
+                                        <div className="grid grid-cols-2 gap-4">
+                                          <div>
+                                            <strong>Customer:</strong> {selectedViewTransaction.customerName}
+                                          </div>
+                                          <div>
+                                            <strong>Phone:</strong> {selectedViewTransaction.phoneNumber}
+                                          </div>
+                                          <div>
+                                            <strong>Village:</strong> {selectedViewTransaction.village}
+                                          </div>
+                                          <div>
+                                            <strong>Stock:</strong> {selectedViewTransaction.stockBought}
+                                          </div>
+                                          <div>
+                                            <strong>Quantity:</strong> {selectedViewTransaction.quantity}kg
+                                          </div>
+                                          <div>
+                                            <strong>Rate:</strong> ₹{selectedViewTransaction.rate}/kg
+                                          </div>
+                                          <div>
+                                            <strong>Total:</strong> ₹{selectedViewTransaction.totalAmount.toFixed(2)}
+                                          </div>
+                                          <div>
+                                            <strong>Paid:</strong> ₹{selectedViewTransaction.paidAmount.toFixed(2)}
+                                          </div>
+                                          <div>
+                                            <strong>Due:</strong> ₹{selectedViewTransaction.dueAmount.toFixed(2)}
+                                          </div>
+                                          <div>
+                                            <strong>Date:</strong> {selectedViewTransaction.date}
+                                          </div>
+                                          <div>
+                                            <strong>Time:</strong> {selectedViewTransaction.time}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </DialogContent>
+                                </Dialog>
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  onClick={() => deleteStockTransaction(transaction.id)}
+                                >
+                                  <Trash2 size={16} />
+                                </Button>
+                              </div>
                             </td>
                           </tr>
-                        ) : (
-                          stockTransactions.map((transaction) => (
-                            <tr key={transaction.id} className="border-b hover:bg-gray-50">
-                              <td className="p-3">{transaction.time}</td>
-                              <td className="p-3">{transaction.customerName}</td>
-                              <td className="p-3">{transaction.village}</td>
-                              <td className="p-3">{transaction.stockBought} ({transaction.quantity}kg)</td>
-                              <td className="p-3 text-center">₹{transaction.totalAmount.toFixed(2)}</td>
-                              <td className="p-3 text-center">
-                                {transaction.dueAmount > 0 ? (
-                                  <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                                ) : (
-                                  <Badge variant="default">Paid</Badge>
-                                )}
-                              </td>
-                              <td className="p-3 text-center">
-                                <div className="flex items-center justify-center space-x-2">
-                                  <Button size="sm" variant="outline">
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button size="sm" variant="outline">
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
+                        ))}
                       </tbody>
                     </table>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+
+                  {stockTransactions.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      No stock sales recorded yet
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
       </div>
