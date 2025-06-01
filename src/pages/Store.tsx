@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, Minus, DollarSign, Package, Eye, Trash2 } from 'lucide-react';
+import { Plus, Minus, Package, Eye, Trash2 } from 'lucide-react';
 import { 
   getInventory, 
   saveInventory, 
@@ -30,8 +30,6 @@ const Store = () => {
   const [stock, setStock] = useState<StockItem[]>([]);
   const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
   const [stockRates, setStockRates] = useState<any>({});
-  const [showAddInventoryForm, setShowAddInventoryForm] = useState(false);
-  const [showAddStockForm, setShowAddStockForm] = useState(false);
   const [showRecordSaleForm, setShowRecordSaleForm] = useState(false);
   const [newInventoryItem, setNewInventoryItem] = useState({ name: '', count: 0 });
   const [newStockItem, setNewStockItem] = useState({ name: '', kg25: 0, kg50: 0 });
@@ -52,20 +50,26 @@ const Store = () => {
     setStockRates(getDefaultStockRates());
   }, []);
 
-  const updateInventoryCount = (itemName: string, change: number) => {
+  // Calculate total amount and due amount when form changes
+  const totalAmount = saleForm.quantity && saleForm.rate ? 
+    parseFloat(saleForm.quantity) * parseFloat(saleForm.rate) : 0;
+  const paidAmount = parseFloat(saleForm.paidAmount) || 0;
+  const dueAmount = totalAmount - paidAmount;
+
+  const updateInventoryCount = (itemName: string, newCount: number) => {
     const updatedInventory = inventory.map(item =>
       item.name === itemName
-        ? { ...item, count: Math.max(0, item.count + change) }
+        ? { ...item, count: Math.max(0, newCount) }
         : item
     );
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
   };
 
-  const updateStockCount = (itemName: string, type: 'kg25' | 'kg50', change: number) => {
+  const updateStockCount = (itemName: string, type: 'kg25' | 'kg50', newCount: number) => {
     const updatedStock = stock.map(item =>
       item.name === itemName
-        ? { ...item, [type]: Math.max(0, item[type] + change) }
+        ? { ...item, [type]: Math.max(0, newCount) }
         : item
     );
     setStock(updatedStock);
@@ -78,7 +82,6 @@ const Store = () => {
       setInventory(updatedInventory);
       saveInventory(updatedInventory);
       setNewInventoryItem({ name: '', count: 0 });
-      setShowAddInventoryForm(false);
       toast({
         title: "Success",
         description: "Inventory item added successfully"
@@ -92,7 +95,6 @@ const Store = () => {
       setStock(updatedStock);
       saveStock(updatedStock);
       setNewStockItem({ name: '', kg25: 0, kg50: 0 });
-      setShowAddStockForm(false);
       toast({
         title: "Success",
         description: "Stock item added successfully"
@@ -102,10 +104,6 @@ const Store = () => {
 
   const recordSale = () => {
     if (saleForm.customerName && saleForm.stockItem && saleForm.quantity && saleForm.rate) {
-      const totalAmount = parseFloat(saleForm.quantity) * parseFloat(saleForm.rate);
-      const paidAmount = parseFloat(saleForm.paidAmount) || 0;
-      const dueAmount = totalAmount - paidAmount;
-
       const newTransaction: StockTransaction = {
         id: Date.now().toString(),
         customerName: saleForm.customerName,
@@ -198,24 +196,30 @@ const Store = () => {
                     <div key={item.name} className="text-center">
                       <h3 className="font-medium text-lg mb-2">{item.name}</h3>
                       <div className="text-3xl font-bold text-blue-600 mb-4">{item.count}</div>
-                      <div className="flex items-center justify-center space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateInventoryCount(item.name, -1)}
-                        >
-                          <Minus className="h-4 w-4" />
-                        </Button>
-                        <span className="px-3 py-1 bg-gray-100 rounded text-sm font-medium">
-                          {item.count}
-                        </span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => updateInventoryCount(item.name, 1)}
-                        >
-                          <Plus className="h-4 w-4" />
-                        </Button>
+                      <div className="space-y-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          value={item.count}
+                          onChange={(e) => updateInventoryCount(item.name, parseInt(e.target.value) || 0)}
+                          className="text-center"
+                        />
+                        <div className="flex items-center justify-center space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => updateInventoryCount(item.name, item.count - 1)}
+                          >
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => updateInventoryCount(item.name, item.count + 1)}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -241,7 +245,6 @@ const Store = () => {
                         min="0"
                         value={newInventoryItem.count}
                         onChange={(e) => setNewInventoryItem({ ...newInventoryItem, count: parseInt(e.target.value) || 0 })}
-                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                     </div>
                     <Button onClick={addInventoryItem} className="bg-slate-900 hover:bg-slate-800">
@@ -253,7 +256,6 @@ const Store = () => {
               </CardContent>
             </Card>
 
-            {/* Add Inventory Mismatch Component */}
             <div className="mt-6">
               <InventoryMismatch />
             </div>
@@ -300,17 +302,21 @@ const Store = () => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg25', -1)}
+                                  onClick={() => updateStockCount(item.name, 'kg25', item.kg25 - 1)}
                                 >
                                   <Minus className="h-3 w-3" />
                                 </Button>
-                                <span className="px-2 py-1 bg-gray-100 rounded text-sm min-w-[40px] text-center">
-                                  {item.kg25}
-                                </span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={item.kg25}
+                                  onChange={(e) => updateStockCount(item.name, 'kg25', parseInt(e.target.value) || 0)}
+                                  className="w-16 text-center"
+                                />
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg25', 1)}
+                                  onClick={() => updateStockCount(item.name, 'kg25', item.kg25 + 1)}
                                 >
                                   <Plus className="h-3 w-3" />
                                 </Button>
@@ -321,17 +327,21 @@ const Store = () => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg50', -1)}
+                                  onClick={() => updateStockCount(item.name, 'kg50', item.kg50 - 1)}
                                 >
                                   <Minus className="h-3 w-3" />
                                 </Button>
-                                <span className="px-2 py-1 bg-gray-100 rounded text-sm min-w-[40px] text-center">
-                                  {item.kg50}
-                                </span>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  value={item.kg50}
+                                  onChange={(e) => updateStockCount(item.name, 'kg50', parseInt(e.target.value) || 0)}
+                                  className="w-16 text-center"
+                                />
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => updateStockCount(item.name, 'kg50', 1)}
+                                  onClick={() => updateStockCount(item.name, 'kg50', item.kg50 + 1)}
                                 >
                                   <Plus className="h-3 w-3" />
                                 </Button>
@@ -345,7 +355,7 @@ const Store = () => {
                                 step="0.01"
                                 value={rate}
                                 onChange={(e) => updateStockRate(item.name, parseFloat(e.target.value) || 0)}
-                                className="w-16 text-center [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className="w-16 text-center"
                               />
                             </td>
                             <td className="p-3 text-center font-bold text-green-600">₹{totalValue.toFixed(2)}</td>
@@ -376,7 +386,6 @@ const Store = () => {
                         min="0"
                         value={newStockItem.kg25}
                         onChange={(e) => setNewStockItem({ ...newStockItem, kg25: parseInt(e.target.value) || 0 })}
-                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                     </div>
                     <div className="w-32">
@@ -387,7 +396,6 @@ const Store = () => {
                         min="0"
                         value={newStockItem.kg50}
                         onChange={(e) => setNewStockItem({ ...newStockItem, kg50: parseInt(e.target.value) || 0 })}
-                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                     </div>
                     <Button onClick={addStockItem} className="bg-slate-900 hover:bg-slate-800">
@@ -412,13 +420,22 @@ const Store = () => {
                   {showRecordSaleForm && (
                     <Card className="mb-6">
                       <CardContent className="p-4">
+                        <h3 className="text-lg font-semibold mb-4">Record Stock Sale</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
-                            <Label htmlFor="customerName">Customer Name</Label>
+                            <Label htmlFor="customerName">Customer Name *</Label>
                             <Input
                               id="customerName"
                               value={saleForm.customerName}
                               onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="phoneNumber">Phone Number *</Label>
+                            <Input
+                              id="phoneNumber"
+                              value={saleForm.phoneNumber}
+                              onChange={(e) => setSaleForm({ ...saleForm, phoneNumber: e.target.value })}
                             />
                           </div>
                           <div>
@@ -430,18 +447,10 @@ const Store = () => {
                             />
                           </div>
                           <div>
-                            <Label htmlFor="phoneNumber">Phone Number</Label>
-                            <Input
-                              id="phoneNumber"
-                              value={saleForm.phoneNumber}
-                              onChange={(e) => setSaleForm({ ...saleForm, phoneNumber: e.target.value })}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="stockItem">Stock Item</Label>
+                            <Label htmlFor="stockItem">Stock Item *</Label>
                             <Select value={saleForm.stockItem} onValueChange={(value) => setSaleForm({ ...saleForm, stockItem: value })}>
                               <SelectTrigger>
-                                <SelectValue placeholder="Select stock" />
+                                <SelectValue placeholder="Select Stock Item" />
                               </SelectTrigger>
                               <SelectContent>
                                 {stock.map((item) => (
@@ -453,38 +462,53 @@ const Store = () => {
                             </Select>
                           </div>
                           <div>
-                            <Label htmlFor="quantity">Quantity (kg)</Label>
+                            <Label htmlFor="quantity">Quantity (kg) *</Label>
                             <Input
                               id="quantity"
                               type="number"
                               value={saleForm.quantity}
                               onChange={(e) => setSaleForm({ ...saleForm, quantity: e.target.value })}
-                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                           </div>
                           <div>
-                            <Label htmlFor="rate">Rate per kg</Label>
+                            <Label htmlFor="rate">Rate per kg (₹) *</Label>
                             <Input
                               id="rate"
                               type="number"
                               step="0.01"
                               value={saleForm.rate}
                               onChange={(e) => setSaleForm({ ...saleForm, rate: e.target.value })}
-                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                           </div>
                           <div>
-                            <Label htmlFor="paidAmount">Paid Amount</Label>
+                            <Label htmlFor="paidAmount">Paid Amount (₹)</Label>
                             <Input
                               id="paidAmount"
                               type="number"
                               step="0.01"
                               value={saleForm.paidAmount}
                               onChange={(e) => setSaleForm({ ...saleForm, paidAmount: e.target.value })}
-                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                             />
                           </div>
                         </div>
+
+                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <Label className="font-medium">Total Amount:</Label>
+                              <p className="text-lg font-bold">₹{totalAmount.toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <Label className="font-medium text-green-600">Paid Amount:</Label>
+                              <p className="text-lg font-bold text-green-600">₹{paidAmount.toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <Label className="font-medium text-red-600">Due Amount:</Label>
+                              <p className="text-lg font-bold text-red-600">₹{dueAmount.toFixed(2)}</p>
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="flex space-x-2 mt-4">
                           <Button onClick={recordSale} className="bg-green-600 hover:bg-green-700">
                             Record Sale
