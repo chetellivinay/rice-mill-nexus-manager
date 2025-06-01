@@ -8,14 +8,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, DollarSign } from 'lucide-react';
+import { Plus, Minus, DollarSign, Package, Eye, Trash2 } from 'lucide-react';
 import { 
+  getInventory, 
+  saveInventory, 
   getStock, 
   saveStock, 
   getStockTransactions, 
   saveStockTransactions, 
   getDefaultStockRates, 
   saveStockRates,
+  InventoryItem,
   StockItem,
   StockTransaction 
 } from '@/utils/localStorage';
@@ -23,308 +26,533 @@ import { toast } from '@/hooks/use-toast';
 import InventoryMismatch from '@/components/InventoryMismatch';
 
 const Store = () => {
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
-  const [transactions, setTransactions] = useState<StockTransaction[]>([]);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [rates, setRates] = useState<any>({});
-  const [formData, setFormData] = useState({
+  const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
+  const [stockRates, setStockRates] = useState<any>({});
+  const [showAddInventoryForm, setShowAddInventoryForm] = useState(false);
+  const [showAddStockForm, setShowAddStockForm] = useState(false);
+  const [showRecordSaleForm, setShowRecordSaleForm] = useState(false);
+  const [newInventoryItem, setNewInventoryItem] = useState({ name: '', count: 0 });
+  const [newStockItem, setNewStockItem] = useState({ name: '', kg25: 0, kg50: 0 });
+  const [saleForm, setSaleForm] = useState({
     customerName: '',
-    phoneNumber: '',
     village: '',
-    stockBought: '',
+    phoneNumber: '',
+    stockItem: '',
     quantity: '',
     rate: '',
     paidAmount: ''
   });
 
   useEffect(() => {
+    setInventory(getInventory());
     setStock(getStock());
-    setTransactions(getStockTransactions());
-    setRates(getDefaultStockRates());
+    setStockTransactions(getStockTransactions());
+    setStockRates(getDefaultStockRates());
   }, []);
 
-  const handleAddTransaction = (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const newTransaction: StockTransaction = {
-      id: Date.now().toString(),
-      customerName: formData.customerName,
-      phoneNumber: formData.phoneNumber,
-      village: formData.village,
-      stockBought: formData.stockBought,
-      quantity: parseFloat(formData.quantity),
-      rate: parseFloat(formData.rate),
-      totalAmount: parseFloat(formData.quantity) * parseFloat(formData.rate),
-      paidAmount: parseFloat(formData.paidAmount),
-      dueAmount: (parseFloat(formData.quantity) * parseFloat(formData.rate)) - parseFloat(formData.paidAmount),
-      date: new Date().toLocaleDateString(),
-      time: new Date().toLocaleTimeString()
-    };
-
-    const updatedTransactions = [...transactions, newTransaction];
-    setTransactions(updatedTransactions);
-    saveStockTransactions(updatedTransactions);
-
-    // Update stock
-    const updatedStock = stock.map(item => {
-      if (item.name === formData.stockBought) {
-        if (formData.quantity && !isNaN(parseFloat(formData.quantity))) {
-          const quantity = parseFloat(formData.quantity);
-          if (quantity === 25) {
-            return { ...item, kg25: item.kg25 + 1 };
-          } else if (quantity === 50) {
-            return { ...item, kg50: item.kg50 + 1 };
-          }
-        }
-      }
-      return item;
-    });
-    setStock(updatedStock);
-    saveStock(updatedStock);
-
-    setFormData({
-      customerName: '',
-      phoneNumber: '',
-      village: '',
-      stockBought: '',
-      quantity: '',
-      rate: '',
-      paidAmount: ''
-    });
-    setShowAddForm(false);
-
-    toast({
-      title: "Success",
-      description: "Stock transaction added successfully"
-    });
+  const updateInventoryCount = (itemName: string, change: number) => {
+    const updatedInventory = inventory.map(item =>
+      item.name === itemName
+        ? { ...item, count: Math.max(0, item.count + change) }
+        : item
+    );
+    setInventory(updatedInventory);
+    saveInventory(updatedInventory);
   };
 
-  const handleRateChange = (stockName: string, newRate: number) => {
-    const updatedRates = { ...rates, [stockName]: newRate };
-    setRates(updatedRates);
-    saveStockRates(updatedRates);
+  const updateStockCount = (itemName: string, type: 'kg25' | 'kg50', change: number) => {
+    const updatedStock = stock.map(item =>
+      item.name === itemName
+        ? { ...item, [type]: Math.max(0, item[type] + change) }
+        : item
+    );
+    setStock(updatedStock);
+    saveStock(updatedStock);
+  };
 
-    toast({
-      title: "Rate Updated",
-      description: `${stockName} rate updated to ₹${newRate.toFixed(2)}`
-    });
+  const addInventoryItem = () => {
+    if (newInventoryItem.name.trim()) {
+      const updatedInventory = [...inventory, newInventoryItem];
+      setInventory(updatedInventory);
+      saveInventory(updatedInventory);
+      setNewInventoryItem({ name: '', count: 0 });
+      setShowAddInventoryForm(false);
+      toast({
+        title: "Success",
+        description: "Inventory item added successfully"
+      });
+    }
+  };
+
+  const addStockItem = () => {
+    if (newStockItem.name.trim()) {
+      const updatedStock = [...stock, newStockItem];
+      setStock(updatedStock);
+      saveStock(updatedStock);
+      setNewStockItem({ name: '', kg25: 0, kg50: 0 });
+      setShowAddStockForm(false);
+      toast({
+        title: "Success",
+        description: "Stock item added successfully"
+      });
+    }
+  };
+
+  const recordSale = () => {
+    if (saleForm.customerName && saleForm.stockItem && saleForm.quantity && saleForm.rate) {
+      const totalAmount = parseFloat(saleForm.quantity) * parseFloat(saleForm.rate);
+      const paidAmount = parseFloat(saleForm.paidAmount) || 0;
+      const dueAmount = totalAmount - paidAmount;
+
+      const newTransaction: StockTransaction = {
+        id: Date.now().toString(),
+        customerName: saleForm.customerName,
+        phoneNumber: saleForm.phoneNumber,
+        village: saleForm.village,
+        stockBought: saleForm.stockItem,
+        quantity: parseFloat(saleForm.quantity),
+        rate: parseFloat(saleForm.rate),
+        totalAmount,
+        paidAmount,
+        dueAmount,
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString()
+      };
+
+      const updatedTransactions = [...stockTransactions, newTransaction];
+      setStockTransactions(updatedTransactions);
+      saveStockTransactions(updatedTransactions);
+
+      // Update stock count
+      const quantity = parseFloat(saleForm.quantity);
+      const updatedStock = stock.map(item => {
+        if (item.name === saleForm.stockItem) {
+          if (quantity === 25) {
+            return { ...item, kg25: Math.max(0, item.kg25 - 1) };
+          } else if (quantity === 50) {
+            return { ...item, kg50: Math.max(0, item.kg50 - 1) };
+          }
+        }
+        return item;
+      });
+      setStock(updatedStock);
+      saveStock(updatedStock);
+
+      setSaleForm({
+        customerName: '',
+        village: '',
+        phoneNumber: '',
+        stockItem: '',
+        quantity: '',
+        rate: '',
+        paidAmount: ''
+      });
+      setShowRecordSaleForm(false);
+
+      toast({
+        title: "Success",
+        description: "Stock sale recorded successfully"
+      });
+    }
+  };
+
+  const updateStockRate = (itemName: string, newRate: number) => {
+    const updatedRates = { ...stockRates, [itemName]: newRate };
+    setStockRates(updatedRates);
+    saveStockRates(updatedRates);
+  };
+
+  const calculateTotalValue = () => {
+    return stock.reduce((total, item) => {
+      const rate = stockRates[item.name] || 0;
+      const totalWeight = (item.kg25 * 25) + (item.kg50 * 50);
+      return total + (totalWeight * rate);
+    }, 0);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       <div className="container mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-gray-800">Stock Management</h1>
-          <Button onClick={() => setShowAddForm(true)} className="bg-blue-600 hover:bg-blue-700">
-            <Plus size={20} className="mr-2" />
-            Add Stock Transaction
-          </Button>
-        </div>
+        <h1 className="text-3xl font-bold text-gray-800 mb-6">Store Management</h1>
 
-        <Tabs defaultValue="stock" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="stock">Current Stock</TabsTrigger>
-            <TabsTrigger value="transactions">Stock Transactions</TabsTrigger>
-            <TabsTrigger value="rates">Stock Rates</TabsTrigger>
+        <Tabs defaultValue="inventory" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="inventory">Inventory</TabsTrigger>
+            <TabsTrigger value="stock">Stock</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="stock">
+          <TabsContent value="inventory">
             <Card>
               <CardHeader>
-                <CardTitle>Current Stock Levels</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Package className="h-5 w-5 text-blue-500" />
+                  <CardTitle>Inventory Management</CardTitle>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {stock.map((item) => (
-                    <div key={item.name} className="p-4 border rounded-lg">
-                      <div className="font-medium">{item.name}</div>
-                      <div className="text-sm text-gray-600">
-                        25kg Bags: {item.kg25}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        50kg Bags: {item.kg50}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        Total: {item.kg25 + item.kg50} Bags
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-6">
+                  {inventory.map((item) => (
+                    <div key={item.name} className="text-center">
+                      <h3 className="font-medium text-lg mb-2">{item.name}</h3>
+                      <div className="text-3xl font-bold text-blue-600 mb-4">{item.count}</div>
+                      <div className="flex items-center justify-center space-x-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateInventoryCount(item.name, -1)}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                        <span className="px-3 py-1 bg-gray-100 rounded text-sm font-medium">
+                          {item.count}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateInventoryCount(item.name, 1)}
+                        >
+                          <Plus className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                   ))}
                 </div>
+
+                <div className="border-t pt-6">
+                  <h3 className="text-lg font-semibold mb-4">Add New Inventory Item</h3>
+                  <div className="flex items-end space-x-4">
+                    <div className="flex-1">
+                      <Label htmlFor="itemName">Item Name</Label>
+                      <Input
+                        id="itemName"
+                        placeholder="Enter item name"
+                        value={newInventoryItem.name}
+                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, name: e.target.value })}
+                      />
+                    </div>
+                    <div className="w-32">
+                      <Label htmlFor="initialCount">Initial Count</Label>
+                      <Input
+                        id="initialCount"
+                        type="number"
+                        min="0"
+                        value={newInventoryItem.count}
+                        onChange={(e) => setNewInventoryItem({ ...newInventoryItem, count: parseInt(e.target.value) || 0 })}
+                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <Button onClick={addInventoryItem} className="bg-slate-900 hover:bg-slate-800">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Item
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Add Inventory Mismatch Component Below Current Stock */}
+            {/* Add Inventory Mismatch Component */}
             <div className="mt-6">
               <InventoryMismatch />
             </div>
           </TabsContent>
 
-          <TabsContent value="transactions">
+          <TabsContent value="stock">
             <Card>
               <CardHeader>
-                <CardTitle>Stock Transactions</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {transactions.map((transaction) => (
-                    <div key={transaction.id} className="p-4 border rounded-lg">
-                      <div className="font-medium">{transaction.customerName}</div>
-                      <div className="text-sm text-gray-600">
-                        {transaction.village} • {transaction.phoneNumber}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {transaction.stockBought} - {transaction.quantity}kg
-                      </div>
-                      <div className="text-sm">
-                        ₹{transaction.totalAmount.toFixed(2)} (Paid: ₹{transaction.paidAmount.toFixed(2)}, Due: ₹{transaction.dueAmount.toFixed(2)})
-                      </div>
-                    </div>
-                  ))}
-                  {transactions.length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No stock transactions</div>
-                  )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Package className="h-5 w-5 text-green-500" />
+                    <CardTitle>Stock Management</CardTitle>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-sm text-gray-600">Total Valuation</div>
+                    <div className="text-2xl font-bold text-green-600">₹{calculateTotalValue().toFixed(2)}</div>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="rates">
-            <Card>
-              <CardHeader>
-                <CardTitle>Stock Rates</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {stock.map((item) => (
-                    <div key={item.name} className="p-4 border rounded-lg">
-                      <div className="font-medium">{item.name}</div>
-                      <div className="flex items-center space-x-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="Rate"
-                          value={rates[item.name] || ''}
-                          onChange={(e) => {
-                            const newRate = parseFloat(e.target.value);
-                            if (!isNaN(newRate)) {
-                              handleRateChange(item.name, newRate);
-                            }
-                          }}
-                          className="w-24 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <DollarSign className="h-4 w-4 text-gray-500" />
-                      </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <thead>
+                      <tr className="border-b bg-gray-50">
+                        <th className="text-left p-3 font-medium">Stock Item</th>
+                        <th className="text-center p-3 font-medium">25kg Packages</th>
+                        <th className="text-center p-3 font-medium">50kg Packages</th>
+                        <th className="text-center p-3 font-medium">Total Weight (kg)</th>
+                        <th className="text-center p-3 font-medium">Rate per kg (₹)</th>
+                        <th className="text-center p-3 font-medium">Total Value (₹)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stock.map((item) => {
+                        const totalWeight = (item.kg25 * 25) + (item.kg50 * 50);
+                        const rate = stockRates[item.name] || 0;
+                        const totalValue = totalWeight * rate;
+                        
+                        return (
+                          <tr key={item.name} className="border-b hover:bg-gray-50">
+                            <td className="p-3 font-medium">{item.name}</td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateStockCount(item.name, 'kg25', -1)}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <span className="px-2 py-1 bg-gray-100 rounded text-sm min-w-[40px] text-center">
+                                  {item.kg25}
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateStockCount(item.name, 'kg25', 1)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center space-x-2">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateStockCount(item.name, 'kg50', -1)}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <span className="px-2 py-1 bg-gray-100 rounded text-sm min-w-[40px] text-center">
+                                  {item.kg50}
+                                </span>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateStockCount(item.name, 'kg50', 1)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            </td>
+                            <td className="p-3 text-center font-medium">{totalWeight} kg</td>
+                            <td className="p-3 text-center">
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={rate}
+                                onChange={(e) => updateStockRate(item.name, parseFloat(e.target.value) || 0)}
+                                className="w-16 text-center [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </td>
+                            <td className="p-3 text-center font-bold text-green-600">₹{totalValue.toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-6 border-t pt-6">
+                  <h3 className="text-lg font-semibold mb-4">Add New Stock Item</h3>
+                  <div className="flex items-end space-x-4">
+                    <div className="flex-1">
+                      <Label htmlFor="stockName">Stock Item Name</Label>
+                      <Input
+                        id="stockName"
+                        placeholder="Enter stock name"
+                        value={newStockItem.name}
+                        onChange={(e) => setNewStockItem({ ...newStockItem, name: e.target.value })}
+                      />
                     </div>
-                  ))}
+                    <div className="w-32">
+                      <Label htmlFor="kg25Packages">25kg Packages</Label>
+                      <Input
+                        id="kg25Packages"
+                        type="number"
+                        min="0"
+                        value={newStockItem.kg25}
+                        onChange={(e) => setNewStockItem({ ...newStockItem, kg25: parseInt(e.target.value) || 0 })}
+                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <div className="w-32">
+                      <Label htmlFor="kg50Packages">50kg Packages</Label>
+                      <Input
+                        id="kg50Packages"
+                        type="number"
+                        min="0"
+                        value={newStockItem.kg50}
+                        onChange={(e) => setNewStockItem({ ...newStockItem, kg50: parseInt(e.target.value) || 0 })}
+                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                      />
+                    </div>
+                    <Button onClick={addStockItem} className="bg-slate-900 hover:bg-slate-800">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Stock
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="mt-8 border-t pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold">Stock Sales</h3>
+                    <Button 
+                      onClick={() => setShowRecordSaleForm(true)}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Record Sale
+                    </Button>
+                  </div>
+
+                  {showRecordSaleForm && (
+                    <Card className="mb-6">
+                      <CardContent className="p-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="customerName">Customer Name</Label>
+                            <Input
+                              id="customerName"
+                              value={saleForm.customerName}
+                              onChange={(e) => setSaleForm({ ...saleForm, customerName: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="village">Village</Label>
+                            <Input
+                              id="village"
+                              value={saleForm.village}
+                              onChange={(e) => setSaleForm({ ...saleForm, village: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="phoneNumber">Phone Number</Label>
+                            <Input
+                              id="phoneNumber"
+                              value={saleForm.phoneNumber}
+                              onChange={(e) => setSaleForm({ ...saleForm, phoneNumber: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="stockItem">Stock Item</Label>
+                            <Select value={saleForm.stockItem} onValueChange={(value) => setSaleForm({ ...saleForm, stockItem: value })}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select stock" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {stock.map((item) => (
+                                  <SelectItem key={item.name} value={item.name}>
+                                    {item.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label htmlFor="quantity">Quantity (kg)</Label>
+                            <Input
+                              id="quantity"
+                              type="number"
+                              value={saleForm.quantity}
+                              onChange={(e) => setSaleForm({ ...saleForm, quantity: e.target.value })}
+                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="rate">Rate per kg</Label>
+                            <Input
+                              id="rate"
+                              type="number"
+                              step="0.01"
+                              value={saleForm.rate}
+                              onChange={(e) => setSaleForm({ ...saleForm, rate: e.target.value })}
+                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="paidAmount">Paid Amount</Label>
+                            <Input
+                              id="paidAmount"
+                              type="number"
+                              step="0.01"
+                              value={saleForm.paidAmount}
+                              onChange={(e) => setSaleForm({ ...saleForm, paidAmount: e.target.value })}
+                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex space-x-2 mt-4">
+                          <Button onClick={recordSale} className="bg-green-600 hover:bg-green-700">
+                            Record Sale
+                          </Button>
+                          <Button variant="outline" onClick={() => setShowRecordSaleForm(false)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead>
+                        <tr className="border-b bg-gray-50">
+                          <th className="text-left p-3 font-medium">Time</th>
+                          <th className="text-left p-3 font-medium">Customer</th>
+                          <th className="text-left p-3 font-medium">Village</th>
+                          <th className="text-left p-3 font-medium">Stock</th>
+                          <th className="text-center p-3 font-medium">Amount</th>
+                          <th className="text-center p-3 font-medium">Due</th>
+                          <th className="text-center p-3 font-medium">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockTransactions.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="text-center py-8 text-gray-500">
+                              No stock sales recorded yet
+                            </td>
+                          </tr>
+                        ) : (
+                          stockTransactions.map((transaction) => (
+                            <tr key={transaction.id} className="border-b hover:bg-gray-50">
+                              <td className="p-3">{transaction.time}</td>
+                              <td className="p-3">{transaction.customerName}</td>
+                              <td className="p-3">{transaction.village}</td>
+                              <td className="p-3">{transaction.stockBought} ({transaction.quantity}kg)</td>
+                              <td className="p-3 text-center">₹{transaction.totalAmount.toFixed(2)}</td>
+                              <td className="p-3 text-center">
+                                {transaction.dueAmount > 0 ? (
+                                  <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                                ) : (
+                                  <Badge variant="default">Paid</Badge>
+                                )}
+                              </td>
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center space-x-2">
+                                  <Button size="sm" variant="outline">
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" variant="outline">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
-
-        {/* Add Stock Transaction Form */}
-        {showAddForm && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Add New Stock Transaction</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleAddTransaction} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="customerName">Customer Name *</Label>
-                  <Input
-                    id="customerName"
-                    required
-                    value={formData.customerName}
-                    onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="phoneNumber">Phone Number *</Label>
-                  <Input
-                    id="phoneNumber"
-                    type="tel"
-                    required
-                    value={formData.phoneNumber}
-                    onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="village">Village</Label>
-                  <Input
-                    id="village"
-                    value={formData.village}
-                    onChange={(e) => setFormData({ ...formData, village: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="stockBought">Stock Bought *</Label>
-                  <Select value={formData.stockBought} onValueChange={(value) => setFormData({ ...formData, stockBought: value })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select stock" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {stock.map((item) => (
-                        <SelectItem key={item.name} value={item.name}>
-                          {item.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="quantity">Quantity (kg) *</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    min="25"
-                    step="25"
-                    required
-                    value={formData.quantity}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="rate">Rate per kg *</Label>
-                  <Input
-                    id="rate"
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    required
-                    value={formData.rate}
-                    onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
-                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="paidAmount">Paid Amount *</Label>
-                  <Input
-                    id="paidAmount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    required
-                    value={formData.paidAmount}
-                    onChange={(e) => setFormData({ ...formData, paidAmount: e.target.value })}
-                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-                <div className="flex space-x-2 md:col-span-2">
-                  <Button type="submit" className="bg-green-600 hover:bg-green-700">
-                    Add Transaction
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
-                    Cancel
-                  </Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
-        )}
       </div>
     </div>
   );

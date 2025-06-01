@@ -5,16 +5,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Calendar, Search, DollarSign, Clock } from 'lucide-react';
+import { AlertTriangle, Search, Calendar, Eye, Trash2 } from 'lucide-react';
 import { getTransactions, Transaction } from '@/utils/localStorage';
-import { getCustomerDueInfo } from '@/utils/dueUtils';
-import DueDisplay from '@/components/DueDisplay';
+import InventoryMismatch from '@/components/InventoryMismatch';
 
 const Transactions = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDate, setSelectedDate] = useState('');
-  const [showDayCalculation, setShowDayCalculation] = useState(false);
+  const [showDueOnly, setShowDueOnly] = useState(false);
+  const [showTodayTotal, setShowTodayTotal] = useState(false);
+  const [showHamali, setShowHamali] = useState(false);
 
   useEffect(() => {
     loadTransactions();
@@ -40,39 +40,15 @@ const Transactions = () => {
     setTransactions(sortedTransactions);
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    // Reset time to compare dates only
-    today.setHours(0, 0, 0, 0);
-    yesterday.setHours(0, 0, 0, 0);
-    date.setHours(0, 0, 0, 0);
-
-    if (date.getTime() === today.getTime()) {
-      return 'Today';
-    } else if (date.getTime() === yesterday.getTime()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric'
-      });
-    }
-  };
-
   const filteredTransactions = transactions.filter(transaction => {
     const matchesSearch = searchTerm === '' || 
       transaction.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       transaction.village.toLowerCase().includes(searchTerm.toLowerCase()) ||
       transaction.phone.includes(searchTerm);
 
-    const matchesDate = selectedDate === '' || transaction.date === selectedDate;
+    const matchesDue = !showDueOnly || transaction.dueAmount > 0;
 
-    return matchesSearch && matchesDate;
+    return matchesSearch && matchesDue;
   });
 
   // Group transactions by date
@@ -85,20 +61,29 @@ const Transactions = () => {
     return groups;
   }, {});
 
-  // Calculate totals for selected date or today
-  const calculateDayTotals = (date: string) => {
-    const dayTransactions = transactions.filter(t => t.date === date);
-    const totalIncome = dayTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
-    const totalHamali = dayTransactions.reduce((sum, t) => {
-      const millingItem = t.items.find(item => item.name === 'Milling');
-      return sum + (millingItem ? millingItem.total : 0);
-    }, 0);
-    return { totalIncome, totalHamali, transactionCount: dayTransactions.length };
+  const formatDateHeader = (dateString: string) => {
+    const date = new Date(dateString);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    // Reset time to compare dates only
+    today.setHours(0, 0, 0, 0);
+    yesterday.setHours(0, 0, 0, 0);
+    date.setHours(0, 0, 0, 0);
+
+    if (date.getTime() === today.getTime()) {
+      return 'Monday'; // or get actual day name
+    } else if (date.getTime() === yesterday.getTime()) {
+      return 'Monday'; // or get actual day name
+    } else {
+      return date.toLocaleDateString('en-GB', { weekday: 'long' });
+    }
   };
 
-  const todayDate = new Date().toLocaleDateString();
-  const todayTotals = calculateDayTotals(todayDate);
-  const selectedDateTotals = selectedDate ? calculateDayTotals(selectedDate) : null;
+  const getTransactionCountForDate = (date: string) => {
+    return groupedTransactions[date]?.length || 0;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -106,83 +91,45 @@ const Transactions = () => {
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Transaction History</h1>
 
-        {/* Today's Totals */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-green-600">₹{todayTotals.totalIncome.toFixed(2)}</div>
-              <div className="text-sm text-gray-600">Today's Total Income</div>
-              <div className="text-xs text-gray-500">{todayTotals.transactionCount} transactions</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-blue-600">₹{todayTotals.totalHamali.toFixed(2)}</div>
-              <div className="text-sm text-gray-600">Today's Total Hamali</div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 text-center">
-              <Button
-                variant="outline"
-                onClick={() => setShowDayCalculation(!showDayCalculation)}
-                className="w-full"
-              >
-                <Calendar className="h-4 w-4 mr-2" />
-                Calculate Day Totals
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Selected Date Totals */}
-        {selectedDateTotals && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <Card className="border-blue-200">
-              <CardContent className="p-4 text-center">
-                <div className="text-xl font-bold text-green-600">₹{selectedDateTotals.totalIncome.toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Selected Day Income</div>
-                <div className="text-xs text-gray-500">{selectedDateTotals.transactionCount} transactions</div>
-              </CardContent>
-            </Card>
-            <Card className="border-blue-200">
-              <CardContent className="p-4 text-center">
-                <div className="text-xl font-bold text-blue-600">₹{selectedDateTotals.totalHamali.toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Selected Day Hamali</div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {/* Inventory Management Section */}
+        <InventoryMismatch />
 
         {/* Search and Filter Controls */}
         <Card className="mb-6">
           <CardContent className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="relative">
+            <div className="flex items-center space-x-4">
+              <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                 <Input
-                  placeholder="Search by name, village, or phone..."
+                  placeholder="Search customers..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
                 />
               </div>
               
-              {showDayCalculation && (
-                <div>
-                  <Input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    placeholder="Select date"
-                  />
-                </div>
-              )}
+              <Button
+                variant={showDueOnly ? "default" : "outline"}
+                onClick={() => setShowDueOnly(!showDueOnly)}
+              >
+                Show Due Only
+              </Button>
               
-              <div className="text-sm text-gray-600 flex items-center">
-                <DollarSign className="h-4 w-4 mr-1" />
-                Total Transactions: {filteredTransactions.length}
-              </div>
+              <Button
+                variant={showTodayTotal ? "default" : "outline"}
+                onClick={() => setShowTodayTotal(!showTodayTotal)}
+              >
+                Calculate Today's Total
+              </Button>
+              
+              <Button
+                variant={showHamali ? "default" : "outline"}
+                onClick={() => setShowHamali(!showHamali)}
+                className="whitespace-nowrap"
+              >
+                <Calendar className="h-4 w-4 mr-2" />
+                Calculate Hamali
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -193,64 +140,55 @@ const Transactions = () => {
             .sort((a, b) => new Date(b).getTime() - new Date(a).getTime()) // Sort dates descending
             .map((date) => (
             <div key={date}>
-              <h2 className="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                {formatDate(date)}
-                <Badge variant="outline" className="ml-2">
-                  {groupedTransactions[date].length} transactions
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  {date} <span className="text-gray-500">{formatDateHeader(date)}</span>
+                </h2>
+                <Badge variant="outline">
+                  {getTransactionCountForDate(date)} transaction{getTransactionCountForDate(date) !== 1 ? 's' : ''}
                 </Badge>
-              </h2>
+              </div>
               
-              <div className="grid gap-4">
-                {groupedTransactions[date].map((transaction) => (
-                  <Card key={transaction.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-4">
-                      <div className="flex justify-between items-start mb-3">
-                        <div>
-                          <h3 className="font-medium text-lg">{transaction.name}</h3>
-                          <p className="text-sm text-gray-600">{transaction.village}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            {transaction.phone && (
-                              <>
-                                <span className="text-sm text-gray-500">{transaction.phone}</span>
-                                <DueDisplay phone={transaction.phone} variant="outline" className="text-xs" />
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="flex items-center gap-1 text-sm text-gray-500 mb-1">
-                            <Clock className="h-3 w-3" />
-                            {transaction.time}
-                          </div>
-                          <div className="text-lg font-bold text-green-600">
-                            ₹{transaction.totalAmount.toFixed(2)}
-                          </div>
-                          {transaction.dueAmount > 0 && (
-                            <div className="text-sm text-red-600">
-                              Due: ₹{transaction.dueAmount.toFixed(2)}
-                            </div>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse bg-white rounded-lg shadow-sm">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="text-left p-3 font-medium">Time</th>
+                      <th className="text-left p-3 font-medium">Customer Name</th>
+                      <th className="text-left p-3 font-medium">Village</th>
+                      <th className="text-center p-3 font-medium">Amount</th>
+                      <th className="text-center p-3 font-medium">Due</th>
+                      <th className="text-center p-3 font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedTransactions[date].map((transaction) => (
+                      <tr key={transaction.id} className="border-b hover:bg-gray-50">
+                        <td className="p-3">{transaction.time}</td>
+                        <td className="p-3 font-medium">{transaction.name}</td>
+                        <td className="p-3">{transaction.village}</td>
+                        <td className="p-3 text-center font-bold">₹{transaction.totalAmount.toFixed(2)}</td>
+                        <td className="p-3 text-center">
+                          {transaction.dueAmount > 0 ? (
+                            <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                          ) : (
+                            '-'
                           )}
-                        </div>
-                      </div>
-                      
-                      <div className="border-t pt-3">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-                          {transaction.items.map((item, index) => (
-                            <div key={index} className="flex justify-between">
-                              <span className="text-gray-600">{item.name}:</span>
-                              <span className="font-medium">{item.quantity} × ₹{item.rate}</span>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="mt-2 pt-2 border-t flex justify-between text-sm">
-                          <span>Paid: ₹{transaction.paidAmount.toFixed(2)}</span>
-                          <span>Due: ₹{transaction.dueAmount.toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center space-x-2">
+                            <Button size="sm" variant="outline">
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="outline">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           ))}
