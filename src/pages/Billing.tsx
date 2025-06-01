@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, ExternalLink } from 'lucide-react';
 import Navigation from '@/components/Navigation';
@@ -258,7 +257,7 @@ const Billing = () => {
               <Alert className="mb-4 border-orange-200 bg-orange-50">
                 <AlertTriangle className="h-4 w-4 text-orange-600" />
                 <AlertDescription className="text-orange-800">
-                  <strong>Customer has outstanding dues:</strong> ₹{dueInfo.totalDue.toFixed(2)} from {dueInfo.transactionCount} transaction(s). 
+                  <strong>Customer has outstanding dues:</strong> ₹{dueInfo.totalDue.toFixed(2)}. 
                   Please handle dues separately in the Dues section or collect payment now.
                 </AlertDescription>
               </Alert>
