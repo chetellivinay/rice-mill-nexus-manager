@@ -7,14 +7,15 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, DollarSign, Trash2, Search } from 'lucide-react';
-import { DueRecord, getDues, saveDues } from '@/utils/localStorage';
+import { Plus, DollarSign, Trash2, Search, TrendingUp, Users, Package, FileText } from 'lucide-react';
+import { DueRecord, getDues, saveDues, getTransactions, getStockTransactions } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
 const Dues = () => {
   const [dues, setDues] = useState<DueRecord[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedDueType, setSelectedDueType] = useState<'all' | 'transaction' | 'stock' | 'custom'>('all');
   const [formData, setFormData] = useState({
     customerName: '',
     type: 'bran' as 'bran' | 'rice' | 'custom',
@@ -27,11 +28,28 @@ const Dues = () => {
     setDues(getDues());
   }, []);
 
-  const filteredDues = dues.filter(due => 
-    due.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    due.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (due.stockType && due.stockType.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const getTransactionDues = () => {
+    const transactions = getTransactions();
+    return transactions.filter(t => t.dueAmount > 0);
+  };
+
+  const getStockDues = () => {
+    const stockTransactions = getStockTransactions();
+    return stockTransactions.filter(t => t.dueAmount > 0);
+  };
+
+  const getCustomDues = () => {
+    return dues.filter(due => due.type === 'custom');
+  };
+
+  const filteredDues = dues.filter(due => {
+    const matchesSearch = due.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      due.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (due.stockType && due.stockType.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    if (selectedDueType === 'all') return matchesSearch;
+    return matchesSearch && due.type === selectedDueType;
+  });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -85,9 +103,14 @@ const Dues = () => {
     });
   };
 
-  const getTotalDues = () => {
-    return filteredDues.reduce((total, due) => total + due.amount, 0);
-  };
+  const transactionDues = getTransactionDues();
+  const stockDues = getStockDues();
+  const customDues = getCustomDues();
+
+  const totalTransactionDues = transactionDues.reduce((sum, t) => sum + t.dueAmount, 0);
+  const totalStockDues = stockDues.reduce((sum, t) => sum + t.dueAmount, 0);
+  const totalCustomDues = customDues.reduce((sum, d) => sum + d.amount, 0);
+  const totalDues = totalTransactionDues + totalStockDues + totalCustomDues;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -101,32 +124,99 @@ const Dues = () => {
           </Button>
         </div>
 
-        {/* Search Bar */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search by customer name, description, or stock type..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Summary Card */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Total Outstanding Dues</p>
-                <p className="text-3xl font-bold text-red-600">₹{getTotalDues().toFixed(2)}</p>
+        {/* Dues Statistics */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Total Dues</p>
+                  <p className="text-2xl font-bold text-red-600">₹{totalDues.toFixed(2)}</p>
+                  <p className="text-sm text-gray-500">{transactionDues.length + stockDues.length + customDues.length} records</p>
+                </div>
+                <TrendingUp className="h-8 w-8 text-red-600" />
               </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-600">Total Records</p>
-                <p className="text-2xl font-bold">{filteredDues.length}</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Transaction Dues</p>
+                  <p className="text-2xl font-bold text-blue-600">₹{totalTransactionDues.toFixed(2)}</p>
+                  <p className="text-sm text-gray-500">{transactionDues.length} records</p>
+                </div>
+                <FileText className="h-8 w-8 text-blue-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Stock Dues</p>
+                  <p className="text-2xl font-bold text-green-600">₹{totalStockDues.toFixed(2)}</p>
+                  <p className="text-sm text-gray-500">{stockDues.length} records</p>
+                </div>
+                <Package className="h-8 w-8 text-green-600" />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Custom Dues</p>
+                  <p className="text-2xl font-bold text-orange-600">₹{totalCustomDues.toFixed(2)}</p>
+                  <p className="text-sm text-gray-500">{customDues.length} records</p>
+                </div>
+                <Users className="h-8 w-8 text-orange-600" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Search and Filter */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                <Input
+                  placeholder="Search by customer name, description, or stock type..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant={selectedDueType === 'all' ? 'default' : 'outline'}
+                  onClick={() => setSelectedDueType('all')}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={selectedDueType === 'transaction' ? 'default' : 'outline'}
+                  onClick={() => setSelectedDueType('transaction')}
+                >
+                  Transaction
+                </Button>
+                <Button
+                  variant={selectedDueType === 'stock' ? 'default' : 'outline'}
+                  onClick={() => setSelectedDueType('stock')}
+                >
+                  Stock
+                </Button>
+                <Button
+                  variant={selectedDueType === 'custom' ? 'default' : 'outline'}
+                  onClick={() => setSelectedDueType('custom')}
+                >
+                  Custom
+                </Button>
               </div>
             </div>
           </CardContent>

@@ -1,6 +1,6 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
-import InventoryMismatch from '@/components/InventoryMismatch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Package, Archive, Eye, Trash2, History } from 'lucide-react';
+import { Plus, Package, Archive, Eye, Trash2, History, ChevronDown, ChevronUp } from 'lucide-react';
 import { 
   InventoryItem, 
   StockItem, 
@@ -42,6 +42,12 @@ interface StockHistory {
   newCount: number;
 }
 
+interface PackageQuantity {
+  kg25: number;
+  kg50: number;
+  other: number;
+}
+
 const Store = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
@@ -49,6 +55,8 @@ const Store = () => {
   const [stockRates, setStockRates] = useState<any>({});
   const [inventoryHistory, setInventoryHistory] = useState<InventoryHistory[]>([]);
   const [stockHistory, setStockHistory] = useState<StockHistory[]>([]);
+  const [showInventoryHistory, setShowInventoryHistory] = useState(false);
+  const [showStockHistory, setShowStockHistory] = useState(false);
   const [newInventoryItem, setNewInventoryItem] = useState({ name: '', count: 0 });
   const [newStockItem, setNewStockItem] = useState({ name: '', kg25: 0, kg50: 0 });
   const [showSaleForm, setShowSaleForm] = useState(false);
@@ -59,10 +67,10 @@ const Store = () => {
     phoneNumber: '',
     village: '',
     stockBought: '',
-    quantity: '',
+    packages: { kg25: 0, kg50: 0, other: 0 } as PackageQuantity,
+    otherWeight: 0,
     rate: '',
-    paidAmount: '',
-    packageType: '25kg'
+    paidAmount: ''
   });
 
   useEffect(() => {
@@ -103,7 +111,7 @@ const Store = () => {
       previousCount,
       newCount: count
     };
-    const newHistory = [historyEntry, ...inventoryHistory].slice(0, 50); // Keep last 50 entries
+    const newHistory = [historyEntry, ...inventoryHistory].slice(0, 50);
     saveInventoryHistory(newHistory);
   };
 
@@ -156,7 +164,7 @@ const Store = () => {
       previousCount,
       newCount: value
     };
-    const newHistory = [historyEntry, ...stockHistory].slice(0, 50); // Keep last 50 entries
+    const newHistory = [historyEntry, ...stockHistory].slice(0, 50);
     saveStockHistory(newHistory);
   };
 
@@ -193,43 +201,48 @@ const Store = () => {
       return;
     }
 
-    const quantity = parseFloat(saleFormData.quantity) || 0;
+    const totalQuantity = (saleFormData.packages.kg25 * 25) + 
+                         (saleFormData.packages.kg50 * 50) + 
+                         saleFormData.otherWeight;
+    
+    if (totalQuantity <= 0) {
+      toast({
+        title: "Error",
+        description: "Please specify quantity to sell",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const rate = parseFloat(saleFormData.rate) || 0;
-    const totalAmount = quantity * rate;
+    const totalAmount = totalQuantity * rate;
     const paidAmount = parseFloat(saleFormData.paidAmount) || 0;
     const dueAmount = totalAmount - paidAmount;
 
-    // Deduct stock based on package type
+    // Deduct stock
     const updatedStock = [...stock];
     const stockItemIndex = updatedStock.findIndex(item => item.name === saleFormData.stockBought);
     
     if (stockItemIndex !== -1) {
-      if (saleFormData.packageType === '25kg') {
-        const packagesNeeded = Math.ceil(quantity / 25);
-        if (updatedStock[stockItemIndex].kg25 >= packagesNeeded) {
-          updatedStock[stockItemIndex].kg25 -= packagesNeeded;
-        } else {
-          toast({
-            title: "Error",
-            description: "Insufficient 25kg packages in stock",
-            variant: "destructive"
-          });
-          return;
-        }
-      } else if (saleFormData.packageType === '50kg') {
-        const packagesNeeded = Math.ceil(quantity / 50);
-        if (updatedStock[stockItemIndex].kg50 >= packagesNeeded) {
-          updatedStock[stockItemIndex].kg50 -= packagesNeeded;
-        } else {
-          toast({
-            title: "Error",
-            description: "Insufficient 50kg packages in stock",
-            variant: "destructive"
-          });
-          return;
-        }
+      if (updatedStock[stockItemIndex].kg25 < saleFormData.packages.kg25) {
+        toast({
+          title: "Error",
+          description: "Insufficient 25kg packages in stock",
+          variant: "destructive"
+        });
+        return;
       }
-      // For 'other' package types, we don't deduct from packages but still record the sale
+      if (updatedStock[stockItemIndex].kg50 < saleFormData.packages.kg50) {
+        toast({
+          title: "Error",
+          description: "Insufficient 50kg packages in stock",
+          variant: "destructive"
+        });
+        return;
+      }
+
+      updatedStock[stockItemIndex].kg25 -= saleFormData.packages.kg25;
+      updatedStock[stockItemIndex].kg50 -= saleFormData.packages.kg50;
     }
 
     setStock(updatedStock);
@@ -241,7 +254,7 @@ const Store = () => {
       phoneNumber: saleFormData.phoneNumber,
       village: saleFormData.village,
       stockBought: saleFormData.stockBought,
-      quantity,
+      quantity: totalQuantity,
       rate,
       totalAmount,
       paidAmount,
@@ -259,10 +272,10 @@ const Store = () => {
       phoneNumber: '',
       village: '',
       stockBought: '',
-      quantity: '',
+      packages: { kg25: 0, kg50: 0, other: 0 },
+      otherWeight: 0,
       rate: '',
-      paidAmount: '',
-      packageType: '25kg'
+      paidAmount: ''
     });
     setShowSaleForm(false);
 
@@ -405,40 +418,48 @@ const Store = () => {
                 </CardContent>
               </Card>
 
-              {/* Inventory Mismatch Component */}
-              <InventoryMismatch />
-
               {/* Inventory History */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <History size={20} />
-                    <span>Recent Inventory Changes</span>
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center space-x-2">
+                      <History size={20} />
+                      <span>Recent Inventory Changes</span>
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowInventoryHistory(!showInventoryHistory)}
+                    >
+                      {showInventoryHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      {showInventoryHistory ? 'Hide' : 'Show'} History
+                    </Button>
+                  </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="max-h-60 overflow-y-auto">
-                    {inventoryHistory.length === 0 ? (
-                      <p className="text-gray-500 text-center py-4">No recent changes</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {inventoryHistory.map((entry, index) => (
-                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                            <div>
-                              <span className="font-medium">{entry.action}</span> {entry.itemName}
-                              <div className="text-sm text-gray-600">
-                                {entry.previousCount} → {entry.newCount}
+                {showInventoryHistory && (
+                  <CardContent>
+                    <div className="max-h-60 overflow-y-auto">
+                      {inventoryHistory.length === 0 ? (
+                        <p className="text-gray-500 text-center py-4">No recent changes</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {inventoryHistory.map((entry, index) => (
+                            <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                              <div>
+                                <span className="font-medium">{entry.action}</span> {entry.itemName}
+                                <div className="text-sm text-gray-600">
+                                  {entry.previousCount} → {entry.newCount}
+                                </div>
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {entry.timestamp}
                               </div>
                             </div>
-                            <div className="text-sm text-gray-500">
-                              {entry.timestamp}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                )}
               </Card>
             </div>
           </TabsContent>
@@ -605,34 +626,45 @@ const Store = () => {
               {/* Stock History */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <History size={20} />
-                    <span>Recent Stock Changes</span>
-                  </CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="flex items-center space-x-2">
+                      <History size={20} />
+                      <span>Recent Stock Changes</span>
+                    </CardTitle>
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowStockHistory(!showStockHistory)}
+                    >
+                      {showStockHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                      {showStockHistory ? 'Hide' : 'Show'} History
+                    </Button>
+                  </div>
                 </CardHeader>
-                <CardContent>
-                  <div className="max-h-60 overflow-y-auto">
-                    {stockHistory.length === 0 ? (
-                      <p className="text-gray-500 text-center py-4">No recent changes</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {stockHistory.map((entry, index) => (
-                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                            <div>
-                              <span className="font-medium">{entry.action}</span> {entry.itemName} ({entry.packageType})
-                              <div className="text-sm text-gray-600">
-                                {entry.previousCount} → {entry.newCount} packages
+                {showStockHistory && (
+                  <CardContent>
+                    <div className="max-h-60 overflow-y-auto">
+                      {stockHistory.length === 0 ? (
+                        <p className="text-gray-500 text-center py-4">No recent changes</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {stockHistory.map((entry, index) => (
+                            <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                              <div>
+                                <span className="font-medium">{entry.action}</span> {entry.itemName} ({entry.packageType})
+                                <div className="text-sm text-gray-600">
+                                  {entry.previousCount} → {entry.newCount} packages
+                                </div>
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {entry.timestamp}
                               </div>
                             </div>
-                            <div className="text-sm text-gray-500">
-                              {entry.timestamp}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                )}
               </Card>
 
               {/* Stock Sales Section */}
@@ -654,119 +686,148 @@ const Store = () => {
                         <CardTitle>Record Stock Sale</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <form onSubmit={handleStockSale} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="customerName">Customer Name *</Label>
-                            <Input
-                              id="customerName"
-                              required
-                              value={saleFormData.customerName}
-                              onChange={(e) => setSaleFormData({...saleFormData, customerName: e.target.value})}
-                            />
+                        <form onSubmit={handleStockSale} className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="customerName">Customer Name *</Label>
+                              <Input
+                                id="customerName"
+                                required
+                                value={saleFormData.customerName}
+                                onChange={(e) => setSaleFormData({...saleFormData, customerName: e.target.value})}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="phoneNumber">Phone Number *</Label>
+                              <Input
+                                id="phoneNumber"
+                                type="tel"
+                                required
+                                maxLength={10}
+                                pattern="[0-9]{10}"
+                                value={saleFormData.phoneNumber}
+                                onChange={(e) => {
+                                  const value = e.target.value.replace(/\D/g, '').slice(0, 10);
+                                  setSaleFormData({...saleFormData, phoneNumber: value});
+                                }}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="village">Village</Label>
+                              <Input
+                                id="village"
+                                value={saleFormData.village}
+                                onChange={(e) => setSaleFormData({...saleFormData, village: e.target.value})}
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="stockBought">Stock Item *</Label>
+                              <select
+                                id="stockBought"
+                                required
+                                value={saleFormData.stockBought}
+                                onChange={(e) => {
+                                  const stockName = e.target.value;
+                                  const rate = stockRates[stockName] || 0;
+                                  setSaleFormData({...saleFormData, stockBought: stockName, rate: rate.toString()});
+                                }}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                              >
+                                <option value="">Select Stock Item</option>
+                                {stock.map((item, index) => (
+                                  <option key={index} value={item.name}>{item.name}</option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
-                          <div>
-                            <Label htmlFor="phoneNumber">Phone Number *</Label>
-                            <Input
-                              id="phoneNumber"
-                              type="tel"
-                              required
-                              maxLength={10}
-                              pattern="[0-9]{10}"
-                              value={saleFormData.phoneNumber}
-                              onChange={(e) => {
-                                const value = e.target.value.replace(/\D/g, '').slice(0, 10);
-                                setSaleFormData({...saleFormData, phoneNumber: value});
-                              }}
-                            />
+
+                          <div className="border rounded-lg p-4">
+                            <h4 className="font-semibold mb-3">Package Quantities</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div>
+                                <Label htmlFor="kg25Packages">25kg Bags</Label>
+                                <Input
+                                  id="kg25Packages"
+                                  type="number"
+                                  min="0"
+                                  value={saleFormData.packages.kg25}
+                                  onChange={(e) => setSaleFormData({
+                                    ...saleFormData,
+                                    packages: { ...saleFormData.packages, kg25: parseInt(e.target.value) || 0 }
+                                  })}
+                                  className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="kg50Packages">50kg Bags</Label>
+                                <Input
+                                  id="kg50Packages"
+                                  type="number"
+                                  min="0"
+                                  value={saleFormData.packages.kg50}
+                                  onChange={(e) => setSaleFormData({
+                                    ...saleFormData,
+                                    packages: { ...saleFormData.packages, kg50: parseInt(e.target.value) || 0 }
+                                  })}
+                                  className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+                              <div>
+                                <Label htmlFor="otherWeight">Other Weight (kg)</Label>
+                                <Input
+                                  id="otherWeight"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={saleFormData.otherWeight}
+                                  onChange={(e) => setSaleFormData({...saleFormData, otherWeight: parseFloat(e.target.value) || 0})}
+                                  className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                />
+                              </div>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-600">
+                              Total Weight: {(saleFormData.packages.kg25 * 25) + (saleFormData.packages.kg50 * 50) + saleFormData.otherWeight} kg
+                            </div>
                           </div>
-                          <div>
-                            <Label htmlFor="village">Village</Label>
-                            <Input
-                              id="village"
-                              value={saleFormData.village}
-                              onChange={(e) => setSaleFormData({...saleFormData, village: e.target.value})}
-                            />
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <Label htmlFor="rate">Rate per kg (₹) *</Label>
+                              <Input
+                                id="rate"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                required
+                                value={saleFormData.rate}
+                                onChange={(e) => setSaleFormData({...saleFormData, rate: e.target.value})}
+                                className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="paidAmount">Paid Amount (₹)</Label>
+                              <Input
+                                id="paidAmount"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={saleFormData.paidAmount}
+                                onChange={(e) => setSaleFormData({...saleFormData, paidAmount: e.target.value})}
+                                className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
                           </div>
-                          <div>
-                            <Label htmlFor="stockBought">Stock Item *</Label>
-                            <select
-                              id="stockBought"
-                              required
-                              value={saleFormData.stockBought}
-                              onChange={(e) => {
-                                const stockName = e.target.value;
-                                const rate = stockRates[stockName] || 0;
-                                setSaleFormData({...saleFormData, stockBought: stockName, rate: rate.toString()});
-                              }}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                            >
-                              <option value="">Select Stock Item</option>
-                              {stock.map((item, index) => (
-                                <option key={index} value={item.name}>{item.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <Label htmlFor="packageType">Package Type *</Label>
-                            <select
-                              id="packageType"
-                              required
-                              value={saleFormData.packageType}
-                              onChange={(e) => setSaleFormData({...saleFormData, packageType: e.target.value})}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                            >
-                              <option value="25kg">25kg Bag</option>
-                              <option value="50kg">50kg Bag</option>
-                              <option value="other">Other (Custom)</option>
-                            </select>
-                          </div>
-                          <div>
-                            <Label htmlFor="quantity">Quantity (kg) *</Label>
-                            <Input
-                              id="quantity"
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              required
-                              value={saleFormData.quantity}
-                              onChange={(e) => setSaleFormData({...saleFormData, quantity: e.target.value})}
-                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="rate">Rate per kg (₹) *</Label>
-                            <Input
-                              id="rate"
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              required
-                              value={saleFormData.rate}
-                              onChange={(e) => setSaleFormData({...saleFormData, rate: e.target.value})}
-                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="paidAmount">Paid Amount (₹)</Label>
-                            <Input
-                              id="paidAmount"
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={saleFormData.paidAmount}
-                              onChange={(e) => setSaleFormData({...saleFormData, paidAmount: e.target.value})}
-                              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                            />
-                          </div>
-                          <div className="md:col-span-2">
+
+                          <div className="border-t pt-4">
                             <div className="text-lg font-semibold">
-                              Total Amount: ₹{((parseFloat(saleFormData.quantity) || 0) * (parseFloat(saleFormData.rate) || 0)).toFixed(2)}
+                              Total Amount: ₹{(((saleFormData.packages.kg25 * 25) + (saleFormData.packages.kg50 * 50) + saleFormData.otherWeight) * (parseFloat(saleFormData.rate) || 0)).toFixed(2)}
                             </div>
                             <div className="text-lg font-semibold text-red-600">
-                              Due Amount: ₹{Math.max(0, ((parseFloat(saleFormData.quantity) || 0) * (parseFloat(saleFormData.rate) || 0)) - (parseFloat(saleFormData.paidAmount) || 0)).toFixed(2)}
+                              Due Amount: ₹{Math.max(0, (((saleFormData.packages.kg25 * 25) + (saleFormData.packages.kg50 * 50) + saleFormData.otherWeight) * (parseFloat(saleFormData.rate) || 0)) - (parseFloat(saleFormData.paidAmount) || 0)).toFixed(2)}
                             </div>
                           </div>
-                          <div className="flex space-x-2 md:col-span-2">
+
+                          <div className="flex space-x-2">
                             <Button type="submit" className="bg-green-600 hover:bg-green-700">
                               Record Sale
                             </Button>
