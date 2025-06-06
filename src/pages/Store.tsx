@@ -146,12 +146,13 @@ const Store = () => {
     setStock(updatedStock);
     saveStock(updatedStock);
 
-    // Save history
+    // Save history with correct package type format
+    const packageType = field === 'kg25' ? '25kg' : '50kg';
     const historyEntry: StockHistory = {
       timestamp: new Date().toLocaleString(),
       action: 'Updated',
       itemName: updatedStock[index].name,
-      packageType: field,
+      packageType,
       previousCount,
       newCount: value
     };
