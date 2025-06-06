@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
+import InventoryMismatch from '@/components/InventoryMismatch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -7,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Package, Archive, Eye, Trash2 } from 'lucide-react';
+import { Plus, Package, Archive, Eye, Trash2, History } from 'lucide-react';
 import { 
   InventoryItem, 
   StockItem, 
@@ -24,11 +25,30 @@ import {
 } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
+interface InventoryHistory {
+  timestamp: string;
+  action: string;
+  itemName: string;
+  previousCount: number;
+  newCount: number;
+}
+
+interface StockHistory {
+  timestamp: string;
+  action: string;
+  itemName: string;
+  packageType: '25kg' | '50kg';
+  previousCount: number;
+  newCount: number;
+}
+
 const Store = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
   const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
   const [stockRates, setStockRates] = useState<any>({});
+  const [inventoryHistory, setInventoryHistory] = useState<InventoryHistory[]>([]);
+  const [stockHistory, setStockHistory] = useState<StockHistory[]>([]);
   const [newInventoryItem, setNewInventoryItem] = useState({ name: '', count: 0 });
   const [newStockItem, setNewStockItem] = useState({ name: '', kg25: 0, kg50: 0 });
   const [showSaleForm, setShowSaleForm] = useState(false);
@@ -41,7 +61,8 @@ const Store = () => {
     stockBought: '',
     quantity: '',
     rate: '',
-    paidAmount: ''
+    paidAmount: '',
+    packageType: '25kg'
   });
 
   useEffect(() => {
@@ -49,13 +70,41 @@ const Store = () => {
     setStock(getStock());
     setStockTransactions(getStockTransactions());
     setStockRates(getDefaultStockRates());
+    
+    // Load history from localStorage
+    const savedInventoryHistory = JSON.parse(localStorage.getItem('inventory_history') || '[]');
+    const savedStockHistory = JSON.parse(localStorage.getItem('stock_history') || '[]');
+    setInventoryHistory(savedInventoryHistory);
+    setStockHistory(savedStockHistory);
   }, []);
+
+  const saveInventoryHistory = (newHistory: InventoryHistory[]) => {
+    localStorage.setItem('inventory_history', JSON.stringify(newHistory));
+    setInventoryHistory(newHistory);
+  };
+
+  const saveStockHistory = (newHistory: StockHistory[]) => {
+    localStorage.setItem('stock_history', JSON.stringify(newHistory));
+    setStockHistory(newHistory);
+  };
 
   const updateInventoryItem = (index: number, count: number) => {
     const updatedInventory = [...inventory];
+    const previousCount = updatedInventory[index].count;
     updatedInventory[index].count = Math.max(0, count);
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
+
+    // Save history
+    const historyEntry: InventoryHistory = {
+      timestamp: new Date().toLocaleString(),
+      action: 'Updated',
+      itemName: updatedInventory[index].name,
+      previousCount,
+      newCount: count
+    };
+    const newHistory = [historyEntry, ...inventoryHistory].slice(0, 50); // Keep last 50 entries
+    saveInventoryHistory(newHistory);
   };
 
   const addInventoryItem = () => {
@@ -71,8 +120,19 @@ const Store = () => {
     const updatedInventory = [...inventory, { ...newInventoryItem }];
     setInventory(updatedInventory);
     saveInventory(updatedInventory);
-    setNewInventoryItem({ name: '', count: 0 });
     
+    // Save history
+    const historyEntry: InventoryHistory = {
+      timestamp: new Date().toLocaleString(),
+      action: 'Added',
+      itemName: newInventoryItem.name,
+      previousCount: 0,
+      newCount: newInventoryItem.count
+    };
+    const newHistory = [historyEntry, ...inventoryHistory].slice(0, 50);
+    saveInventoryHistory(newHistory);
+    
+    setNewInventoryItem({ name: '', count: 0 });
     toast({
       title: "Success",
       description: "Inventory item added successfully"
@@ -81,9 +141,22 @@ const Store = () => {
 
   const updateStockItem = (index: number, field: 'kg25' | 'kg50', value: number) => {
     const updatedStock = [...stock];
+    const previousCount = updatedStock[index][field];
     updatedStock[index][field] = Math.max(0, value);
     setStock(updatedStock);
     saveStock(updatedStock);
+
+    // Save history
+    const historyEntry: StockHistory = {
+      timestamp: new Date().toLocaleString(),
+      action: 'Updated',
+      itemName: updatedStock[index].name,
+      packageType: field,
+      previousCount,
+      newCount: value
+    };
+    const newHistory = [historyEntry, ...stockHistory].slice(0, 50); // Keep last 50 entries
+    saveStockHistory(newHistory);
   };
 
   const addStockItem = () => {
@@ -125,6 +198,42 @@ const Store = () => {
     const paidAmount = parseFloat(saleFormData.paidAmount) || 0;
     const dueAmount = totalAmount - paidAmount;
 
+    // Deduct stock based on package type
+    const updatedStock = [...stock];
+    const stockItemIndex = updatedStock.findIndex(item => item.name === saleFormData.stockBought);
+    
+    if (stockItemIndex !== -1) {
+      if (saleFormData.packageType === '25kg') {
+        const packagesNeeded = Math.ceil(quantity / 25);
+        if (updatedStock[stockItemIndex].kg25 >= packagesNeeded) {
+          updatedStock[stockItemIndex].kg25 -= packagesNeeded;
+        } else {
+          toast({
+            title: "Error",
+            description: "Insufficient 25kg packages in stock",
+            variant: "destructive"
+          });
+          return;
+        }
+      } else if (saleFormData.packageType === '50kg') {
+        const packagesNeeded = Math.ceil(quantity / 50);
+        if (updatedStock[stockItemIndex].kg50 >= packagesNeeded) {
+          updatedStock[stockItemIndex].kg50 -= packagesNeeded;
+        } else {
+          toast({
+            title: "Error",
+            description: "Insufficient 50kg packages in stock",
+            variant: "destructive"
+          });
+          return;
+        }
+      }
+      // For 'other' package types, we don't deduct from packages but still record the sale
+    }
+
+    setStock(updatedStock);
+    saveStock(updatedStock);
+
     const newTransaction: StockTransaction = {
       id: Date.now().toString(),
       customerName: saleFormData.customerName,
@@ -151,7 +260,8 @@ const Store = () => {
       stockBought: '',
       quantity: '',
       rate: '',
-      paidAmount: ''
+      paidAmount: '',
+      packageType: '25kg'
     });
     setShowSaleForm(false);
 
@@ -291,6 +401,42 @@ const Store = () => {
                       </div>
                     </CardContent>
                   </Card>
+                </CardContent>
+              </Card>
+
+              {/* Inventory Mismatch Component */}
+              <InventoryMismatch />
+
+              {/* Inventory History */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <History size={20} />
+                    <span>Recent Inventory Changes</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="max-h-60 overflow-y-auto">
+                    {inventoryHistory.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">No recent changes</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {inventoryHistory.map((entry, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <div>
+                              <span className="font-medium">{entry.action}</span> {entry.itemName}
+                              <div className="text-sm text-gray-600">
+                                {entry.previousCount} → {entry.newCount}
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {entry.timestamp}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </div>
@@ -455,6 +601,39 @@ const Store = () => {
                 </CardContent>
               </Card>
 
+              {/* Stock History */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center space-x-2">
+                    <History size={20} />
+                    <span>Recent Stock Changes</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="max-h-60 overflow-y-auto">
+                    {stockHistory.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">No recent changes</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {stockHistory.map((entry, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <div>
+                              <span className="font-medium">{entry.action}</span> {entry.itemName} ({entry.packageType})
+                              <div className="text-sm text-gray-600">
+                                {entry.previousCount} → {entry.newCount} packages
+                              </div>
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {entry.timestamp}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
               {/* Stock Sales Section */}
               <Card>
                 <CardHeader>
@@ -524,6 +703,20 @@ const Store = () => {
                               {stock.map((item, index) => (
                                 <option key={index} value={item.name}>{item.name}</option>
                               ))}
+                            </select>
+                          </div>
+                          <div>
+                            <Label htmlFor="packageType">Package Type *</Label>
+                            <select
+                              id="packageType"
+                              required
+                              value={saleFormData.packageType}
+                              onChange={(e) => setSaleFormData({...saleFormData, packageType: e.target.value})}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                            >
+                              <option value="25kg">25kg Bag</option>
+                              <option value="50kg">50kg Bag</option>
+                              <option value="other">Other (Custom)</option>
                             </select>
                           </div>
                           <div>
@@ -646,39 +839,17 @@ const Store = () => {
                                     {selectedViewTransaction && (
                                       <div className="space-y-4">
                                         <div className="grid grid-cols-2 gap-4">
-                                          <div>
-                                            <strong>Customer:</strong> {selectedViewTransaction.customerName}
-                                          </div>
-                                          <div>
-                                            <strong>Phone:</strong> {selectedViewTransaction.phoneNumber}
-                                          </div>
-                                          <div>
-                                            <strong>Village:</strong> {selectedViewTransaction.village}
-                                          </div>
-                                          <div>
-                                            <strong>Stock:</strong> {selectedViewTransaction.stockBought}
-                                          </div>
-                                          <div>
-                                            <strong>Quantity:</strong> {selectedViewTransaction.quantity}kg
-                                          </div>
-                                          <div>
-                                            <strong>Rate:</strong> ₹{selectedViewTransaction.rate}/kg
-                                          </div>
-                                          <div>
-                                            <strong>Total:</strong> ₹{selectedViewTransaction.totalAmount.toFixed(2)}
-                                          </div>
-                                          <div>
-                                            <strong>Paid:</strong> ₹{selectedViewTransaction.paidAmount.toFixed(2)}
-                                          </div>
-                                          <div>
-                                            <strong>Due:</strong> ₹{selectedViewTransaction.dueAmount.toFixed(2)}
-                                          </div>
-                                          <div>
-                                            <strong>Date:</strong> {selectedViewTransaction.date}
-                                          </div>
-                                          <div>
-                                            <strong>Time:</strong> {selectedViewTransaction.time}
-                                          </div>
+                                          <div><strong>Customer:</strong> {selectedViewTransaction.customerName}</div>
+                                          <div><strong>Phone:</strong> {selectedViewTransaction.phoneNumber}</div>
+                                          <div><strong>Village:</strong> {selectedViewTransaction.village}</div>
+                                          <div><strong>Stock:</strong> {selectedViewTransaction.stockBought}</div>
+                                          <div><strong>Quantity:</strong> {selectedViewTransaction.quantity}kg</div>
+                                          <div><strong>Rate:</strong> ₹{selectedViewTransaction.rate}/kg</div>
+                                          <div><strong>Total:</strong> ₹{selectedViewTransaction.totalAmount.toFixed(2)}</div>
+                                          <div><strong>Paid:</strong> ₹{selectedViewTransaction.paidAmount.toFixed(2)}</div>
+                                          <div><strong>Due:</strong> ₹{selectedViewTransaction.dueAmount.toFixed(2)}</div>
+                                          <div><strong>Date:</strong> {selectedViewTransaction.date}</div>
+                                          <div><strong>Time:</strong> {selectedViewTransaction.time}</div>
                                         </div>
                                       </div>
                                     )}

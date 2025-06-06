@@ -5,147 +5,88 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Plus, DollarSign } from 'lucide-react';
-import { 
-  getTransactions, 
-  saveTransactions, 
-  getDues, 
-  saveDues, 
-  getStockTransactions,
-  saveStockTransactions,
-  DueRecord,
-  StockTransaction 
-} from '@/utils/localStorage';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Plus, DollarSign, Trash2, Search } from 'lucide-react';
+import { DueRecord, getDues, saveDues } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
 const Dues = () => {
-  const [transactionDues, setTransactionDues] = useState<any[]>([]);
-  const [stockDues, setStockDues] = useState<StockTransaction[]>([]);
-  const [customDues, setCustomDues] = useState<DueRecord[]>([]);
+  const [dues, setDues] = useState<DueRecord[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
-  const [paymentAmounts, setPaymentAmounts] = useState<{[key: string]: string}>({});
   const [formData, setFormData] = useState({
     customerName: '',
-    type: 'custom' as 'bran' | 'rice' | 'custom',
+    type: 'bran' as 'bran' | 'rice' | 'custom',
     stockType: '',
     amount: '',
     description: ''
   });
 
   useEffect(() => {
-    // Load transaction dues
-    const transactions = getTransactions();
-    const dueTransactions = transactions.filter(t => t.dueAmount > 0);
-    setTransactionDues(dueTransactions);
-    
-    // Load stock dues
-    const stockTransactions = getStockTransactions();
-    const stockDueTransactions = stockTransactions.filter(t => t.dueAmount > 0);
-    setStockDues(stockDueTransactions);
-    
-    // Load custom dues
-    setCustomDues(getDues());
+    setDues(getDues());
   }, []);
 
-  const handleAddDue = (e: React.FormEvent) => {
+  const filteredDues = dues.filter(due => 
+    due.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    due.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (due.stockType && due.stockType.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    if (!formData.customerName || !formData.amount) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const newDue: DueRecord = {
       id: Date.now().toString(),
       customerName: formData.customerName,
       type: formData.type,
-      stockType: formData.stockType || undefined,
+      stockType: formData.stockType,
       amount: parseFloat(formData.amount),
       description: formData.description,
       date: new Date().toLocaleDateString()
     };
 
-    const updatedDues = [...customDues, newDue];
-    setCustomDues(updatedDues);
+    const updatedDues = [...dues, newDue];
+    setDues(updatedDues);
     saveDues(updatedDues);
-    
+
     setFormData({
       customerName: '',
-      type: 'custom',
+      type: 'bran',
       stockType: '',
       amount: '',
       description: ''
     });
     setShowAddForm(false);
-    
+
     toast({
       title: "Success",
       description: "Due record added successfully"
     });
   };
 
-  const handlePayTransactionDue = (transactionId: string, paymentAmount: number) => {
-    const transactions = getTransactions();
-    const updatedTransactions = transactions.map(t => {
-      if (t.id === transactionId) {
-        const newPaidAmount = t.paidAmount + paymentAmount;
-        const newDueAmount = Math.max(0, t.totalAmount - newPaidAmount);
-        return {
-          ...t,
-          paidAmount: newPaidAmount,
-          dueAmount: newDueAmount
-        };
-      }
-      return t;
-    });
-    
-    saveTransactions(updatedTransactions);
-    setTransactionDues(updatedTransactions.filter(t => t.dueAmount > 0));
-    
-    toast({
-      title: "Payment Processed",
-      description: `₹${paymentAmount} payment recorded successfully`
-    });
-  };
-
-  const handlePayStockDue = (transactionId: string, paymentAmount: number) => {
-    const stockTransactions = getStockTransactions();
-    const updatedTransactions = stockTransactions.map(t => {
-      if (t.id === transactionId) {
-        const newPaidAmount = t.paidAmount + paymentAmount;
-        const newDueAmount = Math.max(0, t.totalAmount - newPaidAmount);
-        return {
-          ...t,
-          paidAmount: newPaidAmount,
-          dueAmount: newDueAmount
-        };
-      }
-      return t;
-    });
-    
-    saveStockTransactions(updatedTransactions);
-    setStockDues(updatedTransactions.filter(t => t.dueAmount > 0));
-    
-    toast({
-      title: "Payment Processed",
-      description: `₹${paymentAmount} payment recorded for stock transaction`
-    });
-  };
-
-  const clearCustomDue = (dueId: string) => {
-    const updatedDues = customDues.filter(d => d.id !== dueId);
-    setCustomDues(updatedDues);
+  const deleteDue = (id: string) => {
+    const updatedDues = dues.filter(due => due.id !== id);
+    setDues(updatedDues);
     saveDues(updatedDues);
     
     toast({
-      title: "Due Cleared",
-      description: "Due has been removed successfully"
+      title: "Due Deleted",
+      description: "Due record has been deleted"
     });
   };
 
   const getTotalDues = () => {
-    const transactionTotal = transactionDues.reduce((sum, t) => sum + t.dueAmount, 0);
-    const stockTotal = stockDues.reduce((sum, t) => sum + t.dueAmount, 0);
-    const customTotal = customDues.reduce((sum, d) => sum + d.amount, 0);
-    return transactionTotal + stockTotal + customTotal;
+    return filteredDues.reduce((total, due) => total + due.amount, 0);
   };
 
   return (
@@ -154,31 +95,38 @@ const Dues = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Dues Management</h1>
-          <Button onClick={() => setShowAddForm(true)} className="bg-blue-600 hover:bg-blue-700">
+          <Button onClick={() => setShowAddForm(true)} className="bg-red-600 hover:bg-red-700">
             <Plus size={20} className="mr-2" />
-            Add Due Record
+            Add Due
           </Button>
         </div>
 
-        {/* Summary */}
+        {/* Search Bar */}
         <Card className="mb-6">
           <CardContent className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">₹{getTotalDues().toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Total Dues</div>
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search by customer name, description, or stock type..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Summary Card */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Outstanding Dues</p>
+                <p className="text-3xl font-bold text-red-600">₹{getTotalDues().toFixed(2)}</p>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">{transactionDues.length}</div>
-                <div className="text-sm text-gray-600">Transaction Dues</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{stockDues.length}</div>
-                <div className="text-sm text-gray-600">Stock Dues</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{customDues.length}</div>
-                <div className="text-sm text-gray-600">Custom Dues</div>
+              <div className="text-right">
+                <p className="text-sm text-gray-600">Total Records</p>
+                <p className="text-2xl font-bold">{filteredDues.length}</p>
               </div>
             </div>
           </CardContent>
@@ -188,10 +136,10 @@ const Dues = () => {
         {showAddForm && (
           <Card className="mb-6">
             <CardHeader>
-              <CardTitle>Add New Due Record</CardTitle>
+              <CardTitle>Add New Due</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleAddDue} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="customerName">Customer Name *</Label>
                   <Input
@@ -202,36 +150,36 @@ const Dues = () => {
                   />
                 </div>
                 <div>
-                  <Label>Due Type *</Label>
-                  <Select value={formData.type} onValueChange={(value: any) => setFormData({...formData, type: value})}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="bran">Bran Stock</SelectItem>
-                      <SelectItem value="rice">Rice Stock</SelectItem>
-                      <SelectItem value="custom">Custom Due</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="type">Type *</Label>
+                  <select
+                    id="type"
+                    required
+                    value={formData.type}
+                    onChange={(e) => setFormData({...formData, type: e.target.value as 'bran' | 'rice' | 'custom'})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                  >
+                    <option value="bran">Bran</option>
+                    <option value="rice">Rice</option>
+                    <option value="custom">Custom</option>
+                  </select>
                 </div>
-                {(formData.type === 'bran' || formData.type === 'rice') && (
+                {formData.type !== 'custom' && (
                   <div>
                     <Label htmlFor="stockType">Stock Type</Label>
                     <Input
                       id="stockType"
                       value={formData.stockType}
                       onChange={(e) => setFormData({...formData, stockType: e.target.value})}
-                      placeholder="e.g., HMT Rice, JSR Rice, Bran"
                     />
                   </div>
                 )}
                 <div>
-                  <Label htmlFor="amount">Amount *</Label>
+                  <Label htmlFor="amount">Amount (₹) *</Label>
                   <Input
                     id="amount"
                     type="number"
-                    min="0"
                     step="0.01"
+                    min="0"
                     required
                     value={formData.amount}
                     onChange={(e) => setFormData({...formData, amount: e.target.value})}
@@ -244,12 +192,12 @@ const Dues = () => {
                     id="description"
                     value={formData.description}
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    placeholder="Additional details about this due"
+                    placeholder="Additional details about the due"
                   />
                 </div>
                 <div className="flex space-x-2 md:col-span-2">
-                  <Button type="submit" className="bg-green-600 hover:bg-green-700">
-                    Add Due Record
+                  <Button type="submit" className="bg-red-600 hover:bg-red-700">
+                    Add Due
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
                     Cancel
@@ -260,168 +208,65 @@ const Dues = () => {
           </Card>
         )}
 
-        <Tabs defaultValue="transaction" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="transaction">Transaction Dues</TabsTrigger>
-            <TabsTrigger value="stock">Stock Dues</TabsTrigger>
-            <TabsTrigger value="custom">Custom Dues</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="transaction">
-            <Card>
-              <CardHeader>
-                <CardTitle>Transaction Dues</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {transactionDues.map((transaction) => (
-                    <div key={transaction.id} className="flex justify-between items-center p-4 bg-orange-50 rounded-lg border">
-                      <div className="flex-1">
-                        <div className="font-medium">{transaction.name}</div>
-                        <div className="text-sm text-gray-600">
-                          {transaction.village} • {transaction.phone} • {transaction.date}
-                        </div>
-                        <div className="text-sm">
-                          Total: ₹{transaction.totalAmount.toFixed(2)} • 
-                          Paid: ₹{transaction.paidAmount.toFixed(2)} • 
-                          Due: ₹{transaction.dueAmount.toFixed(2)}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          max={transaction.dueAmount}
-                          step="0.01"
-                          placeholder="Payment amount"
-                          value={paymentAmounts[transaction.id] || ''}
-                          onChange={(e) => setPaymentAmounts({
-                            ...paymentAmounts,
-                            [transaction.id]: e.target.value
-                          })}
-                          className="w-32 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
+        {/* Dues List */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <DollarSign size={20} />
+              <span>Outstanding Dues</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse border border-gray-300">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 p-3 text-left">Date</th>
+                    <th className="border border-gray-300 p-3 text-left">Customer</th>
+                    <th className="border border-gray-300 p-3 text-left">Type</th>
+                    <th className="border border-gray-300 p-3 text-left">Stock Type</th>
+                    <th className="border border-gray-300 p-3 text-center">Amount</th>
+                    <th className="border border-gray-300 p-3 text-left">Description</th>
+                    <th className="border border-gray-300 p-3 text-center">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDues.map((due) => (
+                    <tr key={due.id}>
+                      <td className="border border-gray-300 p-3">{due.date}</td>
+                      <td className="border border-gray-300 p-3 font-medium">{due.customerName}</td>
+                      <td className="border border-gray-300 p-3">
+                        <Badge variant={due.type === 'bran' ? 'default' : due.type === 'rice' ? 'secondary' : 'outline'}>
+                          {due.type}
+                        </Badge>
+                      </td>
+                      <td className="border border-gray-300 p-3">{due.stockType || '-'}</td>
+                      <td className="border border-gray-300 p-3 text-center font-bold text-red-600">
+                        ₹{due.amount.toFixed(2)}
+                      </td>
+                      <td className="border border-gray-300 p-3">{due.description || '-'}</td>
+                      <td className="border border-gray-300 p-3 text-center">
                         <Button
                           size="sm"
-                          onClick={() => {
-                            const amount = parseFloat(paymentAmounts[transaction.id] || '0');
-                            if (amount > 0) {
-                              handlePayTransactionDue(transaction.id, amount);
-                              setPaymentAmounts({...paymentAmounts, [transaction.id]: ''});
-                            }
-                          }}
+                          variant="destructive"
+                          onClick={() => deleteDue(due.id)}
                         >
-                          Pay
+                          <Trash2 size={16} />
                         </Button>
-                        <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                      </div>
-                    </div>
+                      </td>
+                    </tr>
                   ))}
-                  {transactionDues.length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No transaction dues</div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+                </tbody>
+              </table>
+            </div>
 
-          <TabsContent value="stock">
-            <Card>
-              <CardHeader>
-                <CardTitle>Stock Dues</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {stockDues.map((transaction) => (
-                    <div key={transaction.id} className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border">
-                      <div className="flex-1">
-                        <div className="font-medium">{transaction.customerName}</div>
-                        <div className="text-sm text-gray-600">
-                          {transaction.village} • {transaction.phoneNumber} • {transaction.date}
-                        </div>
-                        <div className="text-sm">
-                          Stock: {transaction.stockBought} ({transaction.quantity}kg) • 
-                          Total: ₹{transaction.totalAmount.toFixed(2)} • 
-                          Paid: ₹{transaction.paidAmount.toFixed(2)} • 
-                          Due: ₹{transaction.dueAmount.toFixed(2)}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Input
-                          type="number"
-                          min="0"
-                          max={transaction.dueAmount}
-                          step="0.01"
-                          placeholder="Payment amount"
-                          value={paymentAmounts[transaction.id] || ''}
-                          onChange={(e) => setPaymentAmounts({
-                            ...paymentAmounts,
-                            [transaction.id]: e.target.value
-                          })}
-                          className="w-32 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            const amount = parseFloat(paymentAmounts[transaction.id] || '0');
-                            if (amount > 0) {
-                              handlePayStockDue(transaction.id, amount);
-                              setPaymentAmounts({...paymentAmounts, [transaction.id]: ''});
-                            }
-                          }}
-                        >
-                          Pay
-                        </Button>
-                        <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                      </div>
-                    </div>
-                  ))}
-                  {stockDues.length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No stock dues</div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="custom">
-            <Card>
-              <CardHeader>
-                <CardTitle>Custom Dues</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {customDues.map((due) => (
-                    <div key={due.id} className="flex justify-between items-center p-4 bg-purple-50 rounded-lg border">
-                      <div className="flex-1">
-                        <div className="font-medium">{due.customerName}</div>
-                        <div className="text-sm text-gray-600">
-                          {due.type === 'bran' ? 'Bran Stock' : due.type === 'rice' ? 'Rice Stock' : 'Custom Due'}
-                          {due.stockType && ` - ${due.stockType}`}
-                        </div>
-                        <div className="text-sm text-gray-600">{due.description}</div>
-                        <div className="text-xs text-gray-500">{due.date}</div>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => clearCustomDue(due.id)}
-                        >
-                          Clear Due
-                        </Button>
-                        <Badge variant="secondary">₹{due.amount.toFixed(2)}</Badge>
-                      </div>
-                    </div>
-                  ))}
-                  {customDues.length === 0 && (
-                    <div className="text-center text-gray-500 py-4">No custom dues</div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+            {filteredDues.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                {searchTerm ? 'No dues found matching your search' : 'No dues recorded yet'}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
