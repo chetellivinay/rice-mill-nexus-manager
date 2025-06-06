@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -7,13 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, DollarSign, User, Edit, Check, X, History } from 'lucide-react';
+import { Plus, DollarSign, User, Edit, Check, X, History, Trash2 } from 'lucide-react';
 import { getWorkers, saveWorkers, WorkerRecord } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
 interface WorkerTransaction {
   id: string;
-  type: 'salary' | 'borrowed' | 'payment';
+  type: 'salary' | 'borrowed' | 'payment' | 'borrowed_cleared';
   amount: number;
   description: string;
   date: string;
@@ -30,7 +29,6 @@ const Workers = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingWorker, setEditingWorker] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<Partial<EnhancedWorkerRecord>>({});
-  const [selectedWorkerHistory, setSelectedWorkerHistory] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     borrowedAmount: '',
@@ -52,6 +50,41 @@ const Workers = () => {
   const saveWorkersData = (workersData: EnhancedWorkerRecord[]) => {
     setWorkers(workersData);
     saveWorkers(workersData);
+  };
+
+  const calculateSalaryToBePaid = (worker: EnhancedWorkerRecord) => {
+    return worker.monthlySalary - worker.salary + worker.borrowedAmount;
+  };
+
+  const clearBorrowedAmount = (workerId: string) => {
+    const updatedWorkers = workers.map(worker => {
+      if (worker.id === workerId && worker.borrowedAmount > 0) {
+        const clearedAmount = worker.borrowedAmount;
+        const newTransaction: WorkerTransaction = {
+          id: Date.now().toString(),
+          type: 'borrowed_cleared',
+          amount: clearedAmount,
+          description: 'Borrowed amount cleared',
+          date: new Date().toLocaleDateString(),
+          time: new Date().toLocaleTimeString()
+        };
+
+        return {
+          ...worker,
+          borrowedAmount: 0,
+          totalDue: worker.monthlySalary - worker.salary,
+          transactions: [...worker.transactions, newTransaction]
+        };
+      }
+      return worker;
+    });
+    
+    saveWorkersData(updatedWorkers);
+    
+    toast({
+      title: "Borrowed Amount Cleared",
+      description: "Worker's borrowed amount has been cleared"
+    });
   };
 
   const handleAddWorker = (e: React.FormEvent) => {
@@ -167,7 +200,7 @@ const Workers = () => {
           updatedWorker.salary += amount;
         }
 
-        updatedWorker.totalDue = updatedWorker.borrowedAmount - updatedWorker.salary;
+        updatedWorker.totalDue = updatedWorker.monthlySalary - updatedWorker.salary + updatedWorker.borrowedAmount;
         return updatedWorker;
       }
       return worker;
@@ -187,8 +220,11 @@ const Workers = () => {
 
   const markSalaryPaid = (id: string) => {
     const worker = workers.find(w => w.id === id);
-    if (worker && worker.totalDue > 0) {
-      addTransaction(id, 'payment', worker.totalDue, 'Full salary payment');
+    if (worker) {
+      const salaryToBePaid = calculateSalaryToBePaid(worker);
+      if (salaryToBePaid > 0) {
+        addTransaction(id, 'payment', salaryToBePaid, 'Full salary payment');
+      }
     }
   };
 
@@ -204,7 +240,7 @@ const Workers = () => {
 
   const getTotalBorrowed = () => workers.reduce((sum, w) => sum + w.borrowedAmount, 0);
   const getTotalPaid = () => workers.reduce((sum, w) => sum + w.salary, 0);
-  const getTotalDue = () => workers.reduce((sum, w) => sum + w.totalDue, 0);
+  const getTotalSalaryToBePaid = () => workers.reduce((sum, w) => sum + calculateSalaryToBePaid(w), 0);
   const getTotalMonthlySalary = () => workers.reduce((sum, w) => sum + w.monthlySalary, 0);
 
   return (
@@ -236,8 +272,8 @@ const Workers = () => {
                 <div className="text-sm text-gray-600">Total Paid</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">₹{getTotalDue().toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Total Due</div>
+                <div className="text-2xl font-bold text-red-600">₹{getTotalSalaryToBePaid().toFixed(2)}</div>
+                <div className="text-sm text-gray-600">Salary To Be Paid</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold text-purple-600">₹{getTotalMonthlySalary().toFixed(2)}</div>
@@ -315,308 +351,267 @@ const Workers = () => {
 
         {/* Workers List */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workers.map((worker) => (
-            <Card key={worker.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader className="pb-3">
-                <div className="flex justify-between items-start">
-                  {editingWorker === worker.id ? (
-                    <div className="flex-1 space-y-2">
-                      <Input
-                        value={editFormData.name || ''}
-                        onChange={(e) => setEditFormData({...editFormData, name: e.target.value})}
-                        className="font-bold"
-                        placeholder="Worker Name"
-                      />
-                      <Input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editFormData.monthlySalary || 0}
-                        onChange={(e) => setEditFormData({...editFormData, monthlySalary: parseFloat(e.target.value) || 0})}
-                        placeholder="Monthly Salary"
-                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                      />
+          {workers.map((worker) => {
+            const salaryToBePaid = calculateSalaryToBePaid(worker);
+            return (
+              <Card key={worker.id} className="hover:shadow-lg transition-shadow">
+                <CardHeader className="pb-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <CardTitle className="text-lg flex items-center">
+                        <User size={20} className="mr-2" />
+                        {worker.name}
+                      </CardTitle>
+                      <div className="text-sm text-gray-600 mt-1">
+                        Monthly Salary: ₹{worker.monthlySalary.toFixed(2)}
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Joined: {worker.date}
+                      </div>
+                    </div>
+                    <div className="flex flex-col space-y-1">
+                      <Badge variant={salaryToBePaid <= 0 ? "default" : "destructive"}>
+                        {salaryToBePaid <= 0 ? "Paid" : "Pending"}
+                      </Badge>
                       <div className="flex space-x-1">
-                        <Button size="sm" onClick={saveEditWorker}>
-                          <Check size={16} />
+                        <Button size="sm" variant="outline" onClick={() => startEditWorker(worker)}>
+                          <Edit size={16} />
                         </Button>
-                        <Button size="sm" variant="outline" onClick={cancelEditWorker}>
+                        <Button size="sm" variant="destructive" onClick={() => deleteWorker(worker.id)}>
                           <X size={16} />
                         </Button>
                       </div>
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex-1">
-                        <CardTitle className="text-lg flex items-center">
-                          <User size={20} className="mr-2" />
-                          {worker.name}
-                        </CardTitle>
-                        <div className="text-sm text-gray-600 mt-1">
-                          Monthly Salary: ₹{worker.monthlySalary.toFixed(2)}
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          Joined: {worker.date}
-                        </div>
-                      </div>
-                      <div className="flex flex-col space-y-1">
-                        <Badge variant={worker.totalDue <= 0 ? "default" : "destructive"}>
-                          {worker.totalDue <= 0 ? "Paid" : "Due"}
-                        </Badge>
-                        <div className="flex space-x-1">
-                          <Button size="sm" variant="outline" onClick={() => startEditWorker(worker)}>
-                            <Edit size={16} />
-                          </Button>
-                          <Button size="sm" variant="destructive" onClick={() => deleteWorker(worker.id)}>
-                            <X size={16} />
-                          </Button>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {editingWorker === worker.id ? (
-                    <div className="space-y-2">
-                      <div>
-                        <Label className="text-sm">Borrowed Amount:</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={editFormData.borrowedAmount || 0}
-                          onChange={(e) => setEditFormData({...editFormData, borrowedAmount: parseFloat(e.target.value) || 0})}
-                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-sm">Salary Paid:</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={editFormData.salary || 0}
-                          onChange={(e) => setEditFormData({...editFormData, salary: parseFloat(e.target.value) || 0})}
-                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                      </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between">
+                      <span className="text-sm">Borrowed:</span>
+                      <span className="font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</span>
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex justify-between">
-                        <span className="text-sm">Borrowed:</span>
-                        <span className="font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm">Salary Paid:</span>
-                        <span className="font-bold text-green-600">₹{worker.salary.toFixed(2)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-sm">Due Amount:</span>
-                        <span className={`font-bold ${worker.totalDue <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          ₹{worker.totalDue.toFixed(2)}
-                        </span>
-                      </div>
-                      
-                      <div className="pt-3 border-t space-y-2">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="outline" className="w-full">
-                              <History size={16} className="mr-1" />
-                              View History
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Transaction History - {worker.name}</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4">
-                              <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded">
-                                <div className="text-center">
-                                  <div className="text-lg font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</div>
-                                  <div className="text-sm text-gray-600">Total Borrowed</div>
-                                </div>
-                                <div className="text-center">
-                                  <div className="text-lg font-bold text-green-600">₹{worker.salary.toFixed(2)}</div>
-                                  <div className="text-sm text-gray-600">Total Paid</div>
-                                </div>
-                                <div className="text-center">
-                                  <div className={`text-lg font-bold ${worker.totalDue <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                    ₹{worker.totalDue.toFixed(2)}
-                                  </div>
-                                  <div className="text-sm text-gray-600">Due Amount</div>
-                                </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm">Salary Paid:</span>
+                      <span className="font-bold text-green-600">₹{worker.salary.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-sm">Salary To Be Paid:</span>
+                      <span className={`font-bold ${salaryToBePaid <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        ₹{salaryToBePaid.toFixed(2)}
+                      </span>
+                    </div>
+                    
+                    <div className="pt-3 border-t space-y-2">
+                      {worker.borrowedAmount > 0 && (
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="w-full"
+                          onClick={() => clearBorrowedAmount(worker.id)}
+                        >
+                          <Trash2 size={16} className="mr-1" />
+                          Clear Borrowed Amount
+                        </Button>
+                      )}
+
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button size="sm" variant="outline" className="w-full">
+                            <History size={16} className="mr-1" />
+                            View History
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>Transaction History - {worker.name}</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded">
+                              <div className="text-center">
+                                <div className="text-lg font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</div>
+                                <div className="text-sm text-gray-600">Total Borrowed</div>
                               </div>
-                              
-                              <div className="overflow-x-auto">
-                                <table className="w-full border-collapse border border-gray-300">
-                                  <thead>
-                                    <tr className="bg-gray-100">
-                                      <th className="border border-gray-300 p-2 text-left">Date</th>
-                                      <th className="border border-gray-300 p-2 text-left">Type</th>
-                                      <th className="border border-gray-300 p-2 text-center">Amount</th>
-                                      <th className="border border-gray-300 p-2 text-left">Description</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {worker.transactions.map((transaction) => (
-                                      <tr key={transaction.id}>
-                                        <td className="border border-gray-300 p-2">
-                                          <div className="text-sm">
-                                            <div>{transaction.date}</div>
-                                            <div className="text-gray-600">{transaction.time}</div>
-                                          </div>
-                                        </td>
-                                        <td className="border border-gray-300 p-2">
-                                          <Badge variant={
-                                            transaction.type === 'borrowed' ? 'destructive' : 
-                                            transaction.type === 'salary' ? 'default' : 'secondary'
-                                          }>
-                                            {transaction.type}
-                                          </Badge>
-                                        </td>
-                                        <td className="border border-gray-300 p-2 text-center font-bold">
-                                          ₹{transaction.amount.toFixed(2)}
-                                        </td>
-                                        <td className="border border-gray-300 p-2">{transaction.description}</td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
+                              <div className="text-center">
+                                <div className="text-lg font-bold text-green-600">₹{worker.salary.toFixed(2)}</div>
+                                <div className="text-sm text-gray-600">Total Paid</div>
                               </div>
-                              
-                              {worker.transactions.length === 0 && (
-                                <div className="text-center py-4 text-gray-500">
-                                  No transactions recorded yet
+                              <div className="text-center">
+                                <div className={`text-lg font-bold ${salaryToBePaid <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                                  ₹{salaryToBePaid.toFixed(2)}
                                 </div>
-                              )}
+                                <div className="text-sm text-gray-600">Salary To Be Paid</div>
+                              </div>
                             </div>
-                          </DialogContent>
-                        </Dialog>
-
-                        {worker.totalDue > 0 && (
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
-                                <DollarSign size={16} className="mr-1" />
-                                Make Payment
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>Make Payment to {worker.name}</DialogTitle>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label>Payment Amount</Label>
-                                  <Input
-                                    type="number"
-                                    min="0"
-                                    max={worker.totalDue}
-                                    step="0.01"
-                                    placeholder="Enter payment amount"
-                                    id={`payment-${worker.id}`}
-                                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                  />
-                                </div>
-                                <div className="flex space-x-2">
-                                  <Button
-                                    onClick={() => {
-                                      const input = document.getElementById(`payment-${worker.id}`) as HTMLInputElement;
-                                      const amount = parseFloat(input?.value || '0');
-                                      if (amount > 0) {
-                                        makePayment(worker.id, amount);
-                                        input.value = '';
-                                      }
-                                    }}
-                                    className="bg-green-600 hover:bg-green-700"
-                                  >
-                                    Record Payment
-                                  </Button>
-                                  <Button
-                                    onClick={() => markSalaryPaid(worker.id)}
-                                    variant="outline"
-                                  >
-                                    Pay Full Amount
-                                  </Button>
-                                </div>
+                            
+                            <div className="overflow-x-auto">
+                              <table className="w-full border-collapse border border-gray-300">
+                                <thead>
+                                  <tr className="bg-gray-100">
+                                    <th className="border border-gray-300 p-2 text-left">Date</th>
+                                    <th className="border border-gray-300 p-2 text-left">Type</th>
+                                    <th className="border border-gray-300 p-2 text-center">Amount</th>
+                                    <th className="border border-gray-300 p-2 text-left">Description</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {worker.transactions
+                                    .sort((a, b) => new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime())
+                                    .map((transaction) => (
+                                    <tr key={transaction.id}>
+                                      <td className="border border-gray-300 p-2">
+                                        <div className="text-sm">
+                                          <div>{transaction.date}</div>
+                                          <div className="text-gray-600">{transaction.time}</div>
+                                        </div>
+                                      </td>
+                                      <td className="border border-gray-300 p-2">
+                                        <Badge variant={
+                                          transaction.type === 'borrowed' ? 'destructive' : 
+                                          transaction.type === 'borrowed_cleared' ? 'secondary' :
+                                          transaction.type === 'salary' ? 'default' : 'secondary'
+                                        }>
+                                          {transaction.type === 'borrowed_cleared' ? 'cleared' : transaction.type}
+                                        </Badge>
+                                      </td>
+                                      <td className="border border-gray-300 p-2 text-center font-bold">
+                                        ₹{transaction.amount.toFixed(2)}
+                                      </td>
+                                      <td className="border border-gray-300 p-2">{transaction.description}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                            
+                            {worker.transactions.length === 0 && (
+                              <div className="text-center py-4 text-gray-500">
+                                No transactions recorded yet
                               </div>
-                            </DialogContent>
-                          </Dialog>
-                        )}
+                            )}
+                          </div>
+                        </DialogContent>
+                      </Dialog>
 
+                      {salaryToBePaid > 0 && (
                         <Dialog>
                           <DialogTrigger asChild>
-                            <Button size="sm" variant="outline" className="w-full">
-                              Add Transaction
+                            <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
+                              <DollarSign size={16} className="mr-1" />
+                              Make Payment
                             </Button>
                           </DialogTrigger>
                           <DialogContent>
                             <DialogHeader>
-                              <DialogTitle>Add Transaction for {worker.name}</DialogTitle>
+                              <DialogTitle>Make Payment to {worker.name}</DialogTitle>
                             </DialogHeader>
                             <div className="space-y-4">
                               <div>
-                                <Label>Transaction Type</Label>
-                                <select
-                                  id={`transaction-type-${worker.id}`}
-                                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                >
-                                  <option value="salary">Salary Payment</option>
-                                  <option value="borrowed">Borrowed Amount</option>
-                                  <option value="payment">Other Payment</option>
-                                </select>
-                              </div>
-                              <div>
-                                <Label>Amount</Label>
+                                <Label>Payment Amount</Label>
                                 <Input
                                   type="number"
                                   min="0"
+                                  max={salaryToBePaid}
                                   step="0.01"
-                                  placeholder="Enter amount"
-                                  id={`transaction-amount-${worker.id}`}
+                                  placeholder="Enter payment amount"
+                                  id={`payment-${worker.id}`}
                                   className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                                 />
                               </div>
-                              <div>
-                                <Label>Description</Label>
-                                <Input
-                                  placeholder="Enter description"
-                                  id={`transaction-desc-${worker.id}`}
-                                />
+                              <div className="flex space-x-2">
+                                <Button
+                                  onClick={() => {
+                                    const input = document.getElementById(`payment-${worker.id}`) as HTMLInputElement;
+                                    const amount = parseFloat(input?.value || '0');
+                                    if (amount > 0) {
+                                      makePayment(worker.id, amount);
+                                      input.value = '';
+                                    }
+                                  }}
+                                  className="bg-green-600 hover:bg-green-700"
+                                >
+                                  Record Payment
+                                </Button>
+                                <Button
+                                  onClick={() => markSalaryPaid(worker.id)}
+                                  variant="outline"
+                                >
+                                  Pay Full Amount
+                                </Button>
                               </div>
-                              <Button
-                                onClick={() => {
-                                  const typeSelect = document.getElementById(`transaction-type-${worker.id}`) as HTMLSelectElement;
-                                  const amountInput = document.getElementById(`transaction-amount-${worker.id}`) as HTMLInputElement;
-                                  const descInput = document.getElementById(`transaction-desc-${worker.id}`) as HTMLInputElement;
-                                  
-                                  const type = typeSelect.value as 'salary' | 'borrowed' | 'payment';
-                                  const amount = parseFloat(amountInput.value || '0');
-                                  const description = descInput.value || '';
-                                  
-                                  if (amount > 0) {
-                                    addTransaction(worker.id, type, amount, description);
-                                    amountInput.value = '';
-                                    descInput.value = '';
-                                  }
-                                }}
-                                className="w-full"
-                              >
-                                Add Transaction
-                              </Button>
                             </div>
                           </DialogContent>
                         </Dialog>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                      )}
+
+                      <Dialog>
+                        <DialogTrigger asChild>
+                          <Button size="sm" variant="outline" className="w-full">
+                            Add Transaction
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>Add Transaction for {worker.name}</DialogTitle>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label>Transaction Type</Label>
+                              <select
+                                id={`transaction-type-${worker.id}`}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                              >
+                                <option value="salary">Salary Payment</option>
+                                <option value="borrowed">Borrowed Amount</option>
+                                <option value="payment">Other Payment</option>
+                              </select>
+                            </div>
+                            <div>
+                              <Label>Amount</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="Enter amount"
+                                id={`transaction-amount-${worker.id}`}
+                                className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                            </div>
+                            <div>
+                              <Label>Description</Label>
+                              <Input
+                                placeholder="Enter description"
+                                id={`transaction-desc-${worker.id}`}
+                              />
+                            </div>
+                            <Button
+                              onClick={() => {
+                                const typeSelect = document.getElementById(`transaction-type-${worker.id}`) as HTMLSelectElement;
+                                const amountInput = document.getElementById(`transaction-amount-${worker.id}`) as HTMLInputElement;
+                                const descInput = document.getElementById(`transaction-desc-${worker.id}`) as HTMLInputElement;
+                                
+                                const type = typeSelect.value as 'salary' | 'borrowed' | 'payment';
+                                const amount = parseFloat(amountInput.value || '0');
+                                const description = descInput.value || '';
+                                
+                                if (amount > 0) {
+                                  addTransaction(worker.id, type, amount, description);
+                                  amountInput.value = '';
+                                  descInput.value = '';
+                                }
+                              }}
+                              className="w-full"
+                            >
+                              Add Transaction
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
 
         {workers.length === 0 && (

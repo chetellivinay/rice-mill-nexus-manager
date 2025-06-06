@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Search, Eye, Trash2, Calculator, DollarSign } from 'lucide-react';
 import { 
   Transaction,
@@ -22,6 +23,7 @@ const Transactions = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
+  const [selectedTransactions, setSelectedTransactions] = useState<string[]>([]);
   const [todaysTotal, setTodaysTotal] = useState(0);
   const [totalHamali, setTotalHamali] = useState(0);
 
@@ -46,23 +48,28 @@ const Transactions = () => {
     return groups;
   }, {} as Record<string, Transaction[]>);
 
-  const calculateTodaysTotal = () => {
-    const today = new Date().toLocaleDateString();
-    const todayTransactions = transactions.filter(t => t.date === today);
-    const total = todayTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
+  const handleTransactionSelect = (transactionId: string, checked: boolean) => {
+    if (checked) {
+      setSelectedTransactions([...selectedTransactions, transactionId]);
+    } else {
+      setSelectedTransactions(selectedTransactions.filter(id => id !== transactionId));
+    }
+  };
+
+  const calculateSelectedTotal = () => {
+    const selectedTransactionData = transactions.filter(t => selectedTransactions.includes(t.id));
+    const total = selectedTransactionData.reduce((sum, t) => sum + t.totalAmount, 0);
     setTodaysTotal(total);
     toast({
-      title: "Today's Total Calculated",
-      description: `Total: ₹${total.toFixed(2)}`
+      title: "Selected Transactions Total Calculated",
+      description: `Total from ${selectedTransactions.length} transactions: ₹${total.toFixed(2)}`
     });
   };
 
-  const calculateTotalHamali = () => {
-    const selectedTransactions = selectedDate 
-      ? transactions.filter(t => t.date === selectedDate)
-      : transactions;
+  const calculateSelectedHamali = () => {
+    const selectedTransactionData = transactions.filter(t => selectedTransactions.includes(t.id));
     
-    const hamali = selectedTransactions.reduce((sum, transaction) => {
+    const hamali = selectedTransactionData.reduce((sum, transaction) => {
       return sum + transaction.items.reduce((itemSum, item) => {
         if (item.name.toLowerCase().includes('unloading') || 
             item.name.toLowerCase().includes('loading') ||
@@ -75,8 +82,8 @@ const Transactions = () => {
     
     setTotalHamali(hamali);
     toast({
-      title: "Hamali Total Calculated",
-      description: `Total Hamali: ₹${hamali.toFixed(2)}`
+      title: "Selected Hamali Total Calculated",
+      description: `Total Hamali from ${selectedTransactions.length} transactions: ₹${hamali.toFixed(2)}`
     });
   };
 
@@ -101,10 +108,24 @@ const Transactions = () => {
       setTransactions(updatedTransactions);
       saveTransactions(updatedTransactions);
       
+      // Remove from selected if it was selected
+      setSelectedTransactions(selectedTransactions.filter(selectedId => selectedId !== id));
+      
       toast({
         title: "Transaction Deleted",
         description: "Transaction moved to bin and inventory restored"
       });
+    }
+  };
+
+  const selectAllTransactions = (dateTransactions: Transaction[]) => {
+    const dateTransactionIds = dateTransactions.map(t => t.id);
+    const allSelected = dateTransactionIds.every(id => selectedTransactions.includes(id));
+    
+    if (allSelected) {
+      setSelectedTransactions(selectedTransactions.filter(id => !dateTransactionIds.includes(id)));
+    } else {
+      setSelectedTransactions([...new Set([...selectedTransactions, ...dateTransactionIds])]);
     }
   };
 
@@ -120,10 +141,10 @@ const Transactions = () => {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Today's Total</p>
+                  <p className="text-sm text-gray-600">Selected Total ({selectedTransactions.length} transactions)</p>
                   <p className="text-2xl font-bold text-green-600">₹{todaysTotal.toFixed(2)}</p>
                 </div>
-                <Button onClick={calculateTodaysTotal} size="sm">
+                <Button onClick={calculateSelectedTotal} size="sm" disabled={selectedTransactions.length === 0}>
                   <Calculator className="h-4 w-4 mr-2" />
                   Calculate
                 </Button>
@@ -135,10 +156,10 @@ const Transactions = () => {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Total Hamali</p>
+                  <p className="text-sm text-gray-600">Selected Hamali ({selectedTransactions.length} transactions)</p>
                   <p className="text-2xl font-bold text-blue-600">₹{totalHamali.toFixed(2)}</p>
                 </div>
-                <Button onClick={calculateTotalHamali} size="sm">
+                <Button onClick={calculateSelectedHamali} size="sm" disabled={selectedTransactions.length === 0}>
                   <DollarSign className="h-4 w-4 mr-2" />
                   Calculate
                 </Button>
@@ -146,6 +167,25 @@ const Transactions = () => {
             </CardContent>
           </Card>
         </div>
+
+        {selectedTransactions.length > 0 && (
+          <Card className="mb-6">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">
+                  {selectedTransactions.length} transaction{selectedTransactions.length !== 1 ? 's' : ''} selected
+                </span>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => setSelectedTransactions([])}
+                >
+                  Clear Selection
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Search and Filter Controls */}
         <Card className="mb-6">
@@ -192,7 +232,13 @@ const Transactions = () => {
                 <Card key={date}>
                   <CardHeader>
                     <CardTitle className="flex justify-between items-center">
-                      <span>{date}</span>
+                      <div className="flex items-center space-x-3">
+                        <Checkbox
+                          checked={dateTransactions.every(t => selectedTransactions.includes(t.id))}
+                          onCheckedChange={() => selectAllTransactions(dateTransactions)}
+                        />
+                        <span>{date}</span>
+                      </div>
                       <Badge variant="outline">
                         {dateTransactions.length} transaction{dateTransactions.length !== 1 ? 's' : ''}
                       </Badge>
@@ -203,6 +249,7 @@ const Transactions = () => {
                       <table className="w-full border-collapse border border-gray-300">
                         <thead>
                           <tr className="bg-gray-100">
+                            <th className="border border-gray-300 p-3 text-center">Select</th>
                             <th className="border border-gray-300 p-3 text-left">Time</th>
                             <th className="border border-gray-300 p-3 text-left">Customer</th>
                             <th className="border border-gray-300 p-3 text-left">Village</th>
@@ -214,9 +261,15 @@ const Transactions = () => {
                         </thead>
                         <tbody>
                           {dateTransactions
-                            .sort((a, b) => new Date(`${a.date} ${a.time}`).getTime() - new Date(`${b.date} ${b.time}`).getTime())
+                            .sort((a, b) => new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime())
                             .map((transaction) => (
-                              <tr key={transaction.id}>
+                              <tr key={transaction.id} className={selectedTransactions.includes(transaction.id) ? 'bg-blue-50' : ''}>
+                                <td className="border border-gray-300 p-3 text-center">
+                                  <Checkbox
+                                    checked={selectedTransactions.includes(transaction.id)}
+                                    onCheckedChange={(checked) => handleTransactionSelect(transaction.id, checked as boolean)}
+                                  />
+                                </td>
                                 <td className="border border-gray-300 p-3">{transaction.time}</td>
                                 <td className="border border-gray-300 p-3">
                                   <div>
