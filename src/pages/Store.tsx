@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -6,7 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, Minus, Package, DollarSign, Eye, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Minus, Package, DollarSign, Eye, Trash2, ChevronDown, ChevronUp, Search, Bookmark } from 'lucide-react';
 import { 
   getInventory, 
   saveInventory, 
@@ -14,29 +16,32 @@ import {
   saveStock, 
   getStockTransactions,
   saveStockTransactions,
-  getDefaultStockRates,
-  saveStockRates,
+  getDues,
+  saveDues,
   InventoryItem, 
   StockItem,
-  StockTransaction
+  StockTransaction,
+  DueRecord
 } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 import CustomerDueAlert from '@/components/CustomerDueAlert';
 import { checkDuesByPhone } from '@/utils/duesChecker';
 
-interface StockSaleForm {
-  customerName: string;
-  phoneNumber: string;
-  village: string;
-  stockBought: string;
-  packageType: string;
-  quantity: number;
-  rate: number;
-  totalAmount: number;
-  paidAmount: number;
-  dueAmount: number;
+interface StockCheckpoint {
+  id: string;
+  stockName: string;
+  kg25Count: number;
+  kg50Count: number;
+  timestamp: string;
   date: string;
-  time: string;
+}
+
+interface InventoryCheckpoint {
+  id: string;
+  itemName: string;
+  count: number;
+  timestamp: string;
+  date: string;
 }
 
 const formatPhoneNumber = (phoneNumber: string): string => {
@@ -52,14 +57,13 @@ const Store = () => {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stock, setStock] = useState<StockItem[]>([]);
   const [stockTransactions, setStockTransactions] = useState<StockTransaction[]>([]);
-  const [stockRates, setStockRates] = useState<any>({});
-  const [showInventoryForm, setShowInventoryForm] = useState(false);
+  const [stockCheckpoints, setStockCheckpoints] = useState<StockCheckpoint[]>([]);
+  const [inventoryCheckpoints, setInventoryCheckpoints] = useState<InventoryCheckpoint[]>([]);
   const [showStockSaleForm, setShowStockSaleForm] = useState(false);
-  const [showInventoryHistory, setShowInventoryHistory] = useState(false);
-  const [showStockHistory, setShowStockHistory] = useState(false);
-  const [recentInventoryChange, setRecentInventoryChange] = useState<any>(null);
-  const [recentStockChange, setRecentStockChange] = useState<any>(null);
+  const [showAddStockForm, setShowAddStockForm] = useState(false);
+  const [showAddInventoryForm, setShowAddInventoryForm] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState<StockTransaction | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const [customerDueAlert, setCustomerDueAlert] = useState<{
     isOpen: boolean;
     customerName: string;
@@ -70,141 +74,18 @@ const Store = () => {
   useEffect(() => {
     setInventory(getInventory());
     setStock(getStock());
-    setStockTransactions(getStockTransactions());
-    setStockRates(getDefaultStockRates());
+    // Sort stock transactions by most recent first
+    const sortedStockTransactions = getStockTransactions().sort((a, b) => {
+      const dateTimeA = new Date(`${a.date} ${a.time}`).getTime();
+      const dateTimeB = new Date(`${b.date} ${b.time}`).getTime();
+      return dateTimeB - dateTimeA;
+    });
+    setStockTransactions(sortedStockTransactions);
+    
+    // Load checkpoints from localStorage
+    setStockCheckpoints(JSON.parse(localStorage.getItem('stock_checkpoints') || '[]'));
+    setInventoryCheckpoints(JSON.parse(localStorage.getItem('inventory_checkpoints') || '[]'));
   }, []);
-
-  const handleAddInventoryItem = () => {
-    const nameInput = document.getElementById('new-inventory-name') as HTMLInputElement;
-    const countInput = document.getElementById('new-inventory-count') as HTMLInputElement;
-    const name = nameInput.value.trim();
-    const count = parseInt(countInput.value, 10);
-
-    if (name && !isNaN(count)) {
-      const newItem: InventoryItem = { name, count };
-      setInventory([...inventory, newItem]);
-      saveInventory([...inventory, newItem]);
-      nameInput.value = '';
-      countInput.value = '';
-      setShowInventoryForm(false);
-      toast({
-        title: "Inventory Item Added",
-        description: `${name} added to inventory`
-      });
-    } else {
-      toast({
-        title: "Error",
-        description: "Please enter a valid item name and count"
-      });
-    }
-  };
-
-  const handleStockSale = (event: React.FormEvent) => {
-    event.preventDefault();
-    const form = event.target as HTMLFormElement;
-
-    const customerName = (document.getElementById('customerName') as HTMLInputElement).value;
-    const phoneNumber = (document.getElementById('phoneNumber') as HTMLInputElement).value;
-    const village = (document.getElementById('village') as HTMLInputElement).value;
-    const stockBought = (document.getElementById('stockBought') as HTMLSelectElement).value;
-    const packageType = (document.getElementById('packageType') as HTMLSelectElement).value;
-    const quantity = parseFloat((document.getElementById('quantity') as HTMLInputElement).value);
-    const totalAmount = parseFloat((document.getElementById('totalAmount') as HTMLInputElement).value);
-    const paidAmount = parseFloat((document.getElementById('paidAmount') as HTMLInputElement).value) || 0;
-
-    if (!customerName || !phoneNumber || !stockBought || isNaN(quantity) || isNaN(totalAmount)) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields"
-      });
-      return;
-    }
-
-    const dueAmount = totalAmount - paidAmount;
-    const newTransaction: StockTransaction = {
-      id: Date.now().toString(),
-      customerName,
-      phoneNumber,
-      village,
-      stockBought,
-      quantity,
-      rate: totalAmount / quantity,
-      totalAmount,
-      paidAmount,
-      dueAmount,
-      date: new Date().toLocaleDateString(),
-      time: new Date().toLocaleTimeString()
-    };
-
-    setStockTransactions([newTransaction, ...stockTransactions]);
-    saveStockTransactions([newTransaction, ...stockTransactions]);
-
-    // Update stock count
-    if (packageType === '25kg') {
-      updateStock(stockBought, -quantity, 0);
-    } else if (packageType === '50kg') {
-      updateStock(stockBought, 0, -quantity);
-    } else {
-      // Handle mixed or other package types as needed
-      toast({
-        title: "Warning",
-        description: "Mixed package types are not fully supported for stock updates"
-      });
-    }
-
-    setShowStockSaleForm(false);
-    form.reset();
-
-    toast({
-      title: "Stock Sale Recorded",
-      description: `Sale of ${quantity}kg ${stockBought} recorded for ${customerName}`
-    });
-
-    // Check for dues
-    const duesInfo = checkDuesByPhone(phoneNumber);
-    if (duesInfo && duesInfo.totalDue > 0) {
-      setCustomerDueAlert({
-        isOpen: true,
-        customerName,
-        phoneNumber: formatPhoneNumber(phoneNumber),
-        dueAmount: duesInfo.totalDue
-      });
-    }
-  };
-
-  const updateInventory = (name: string, changeAmount: number) => {
-    const updatedInventory = inventory.map(item => {
-      if (item.name === name) {
-        const newCount = Math.max(0, item.count + changeAmount);
-        return { ...item, count: newCount };
-      }
-      return item;
-    });
-    
-    setInventory(updatedInventory);
-    saveInventory(updatedInventory);
-    
-    // Store only the most recent change
-    setRecentInventoryChange({
-      item: name,
-      change: changeAmount,
-      time: new Date().toLocaleTimeString(),
-      date: new Date().toLocaleDateString()
-    });
-    
-    toast({
-      title: "Inventory Updated",
-      description: `${name}: ${changeAmount > 0 ? '+' : ''}${changeAmount} items`
-    });
-  };
-
-  const deleteRecentInventoryChange = () => {
-    setRecentInventoryChange(null);
-    toast({
-      title: "Recent Change Cleared",
-      description: "Recent inventory change has been removed"
-    });
-  };
 
   const updateStock = (name: string, kg25Change: number, kg50Change: number) => {
     const updatedStock = stock.map(item => {
@@ -221,27 +102,208 @@ const Store = () => {
     setStock(updatedStock);
     saveStock(updatedStock);
     
-    // Store only the most recent change
-    setRecentStockChange({
-      item: name,
-      kg25Change,
-      kg50Change,
-      time: new Date().toLocaleTimeString(),
-      date: new Date().toLocaleDateString()
-    });
-    
     toast({
       title: "Stock Updated",
       description: `${name}: 25kg ${kg25Change > 0 ? '+' : ''}${kg25Change}, 50kg ${kg50Change > 0 ? '+' : ''}${kg50Change}`
     });
   };
 
-  const deleteRecentStockChange = () => {
-    setRecentStockChange(null);
-    toast({
-      title: "Recent Change Cleared",
-      description: "Recent stock change has been removed"
+  const updateInventory = (name: string, changeAmount: number) => {
+    const updatedInventory = inventory.map(item => {
+      if (item.name === name) {
+        const newCount = Math.max(0, item.count + changeAmount);
+        return { ...item, count: newCount };
+      }
+      return item;
     });
+    
+    setInventory(updatedInventory);
+    saveInventory(updatedInventory);
+    
+    toast({
+      title: "Inventory Updated",
+      description: `${name}: ${changeAmount > 0 ? '+' : ''}${changeAmount} items`
+    });
+  };
+
+  const addStockCheckpoint = (stockName: string) => {
+    const stockItem = stock.find(s => s.name === stockName);
+    if (!stockItem) return;
+
+    const checkpoint: StockCheckpoint = {
+      id: Date.now().toString(),
+      stockName,
+      kg25Count: stockItem.kg25,
+      kg50Count: stockItem.kg50,
+      timestamp: new Date().toLocaleTimeString(),
+      date: new Date().toLocaleDateString()
+    };
+
+    const updatedCheckpoints = [checkpoint, ...stockCheckpoints];
+    setStockCheckpoints(updatedCheckpoints);
+    localStorage.setItem('stock_checkpoints', JSON.stringify(updatedCheckpoints));
+
+    toast({
+      title: "Stock Checkpoint Added",
+      description: `Checkpoint created for ${stockName}`
+    });
+  };
+
+  const addInventoryCheckpoint = (itemName: string) => {
+    const inventoryItem = inventory.find(i => i.name === itemName);
+    if (!inventoryItem) return;
+
+    const checkpoint: InventoryCheckpoint = {
+      id: Date.now().toString(),
+      itemName,
+      count: inventoryItem.count,
+      timestamp: new Date().toLocaleTimeString(),
+      date: new Date().toLocaleDateString()
+    };
+
+    const updatedCheckpoints = [checkpoint, ...inventoryCheckpoints];
+    setInventoryCheckpoints(updatedCheckpoints);
+    localStorage.setItem('inventory_checkpoints', JSON.stringify(updatedCheckpoints));
+
+    toast({
+      title: "Inventory Checkpoint Added",
+      description: `Checkpoint created for ${itemName}`
+    });
+  };
+
+  const handleStockSale = (event: React.FormEvent) => {
+    event.preventDefault();
+    const form = event.target as HTMLFormElement;
+
+    const customerName = (document.getElementById('customerName') as HTMLInputElement).value;
+    const phoneNumber = (document.getElementById('phoneNumber') as HTMLInputElement).value;
+    const village = (document.getElementById('village') as HTMLInputElement).value;
+    const stockBought = (document.getElementById('stockBought') as HTMLSelectElement).value;
+    const kg25Bags = parseInt((document.getElementById('kg25Bags') as HTMLInputElement).value) || 0;
+    const kg50Bags = parseInt((document.getElementById('kg50Bags') as HTMLInputElement).value) || 0;
+    const customWeight = parseFloat((document.getElementById('customWeight') as HTMLInputElement).value) || 0;
+    const ratePerKg = parseFloat((document.getElementById('ratePerKg') as HTMLInputElement).value);
+    const paidAmount = parseFloat((document.getElementById('paidAmount') as HTMLInputElement).value) || 0;
+
+    if (!customerName || !phoneNumber || !stockBought || isNaN(ratePerKg)) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields"
+      });
+      return;
+    }
+
+    const totalWeight = (kg25Bags * 25) + (kg50Bags * 50) + customWeight;
+    if (totalWeight <= 0) {
+      toast({
+        title: "Error",
+        description: "Please specify quantity (bags or custom weight)"
+      });
+      return;
+    }
+
+    const totalAmount = totalWeight * ratePerKg;
+    const dueAmount = totalAmount - paidAmount;
+
+    const newTransaction: StockTransaction = {
+      id: Date.now().toString(),
+      customerName,
+      phoneNumber,
+      village,
+      stockBought,
+      quantity: totalWeight,
+      rate: ratePerKg,
+      totalAmount,
+      paidAmount,
+      dueAmount,
+      date: new Date().toLocaleDateString(),
+      time: new Date().toLocaleTimeString()
+    };
+
+    // Update stock counts
+    updateStock(stockBought, -kg25Bags, -kg50Bags);
+
+    // Add due to dues section if there's a due amount
+    if (dueAmount > 0) {
+      const dues = getDues();
+      const newDue: DueRecord = {
+        id: Date.now().toString(),
+        customerName,
+        type: 'rice',
+        stockType: stockBought,
+        amount: dueAmount,
+        description: `Stock sale - ${totalWeight}kg ${stockBought}`,
+        date: new Date().toLocaleDateString()
+      };
+      saveDues([newDue, ...dues]);
+    }
+
+    const updatedTransactions = [newTransaction, ...stockTransactions];
+    setStockTransactions(updatedTransactions);
+    saveStockTransactions(updatedTransactions);
+
+    setShowStockSaleForm(false);
+    form.reset();
+
+    toast({
+      title: "Stock Sale Recorded",
+      description: `Sale of ${totalWeight}kg ${stockBought} recorded for ${customerName}`
+    });
+
+    // Check for existing dues
+    const duesInfo = checkDuesByPhone(phoneNumber);
+    if (duesInfo && duesInfo.totalDue > 0) {
+      setCustomerDueAlert({
+        isOpen: true,
+        customerName,
+        phoneNumber: formatPhoneNumber(phoneNumber),
+        dueAmount: duesInfo.totalDue
+      });
+    }
+  };
+
+  const handleAddStock = (event: React.FormEvent) => {
+    event.preventDefault();
+    const stockName = (document.getElementById('newStockName') as HTMLInputElement).value;
+    if (stockName.trim()) {
+      const newStock: StockItem = { name: stockName.trim(), kg25: 0, kg50: 0 };
+      const updatedStock = [...stock, newStock];
+      setStock(updatedStock);
+      saveStock(updatedStock);
+      setShowAddStockForm(false);
+      toast({
+        title: "Stock Item Added",
+        description: `${stockName} added to stock`
+      });
+    }
+  };
+
+  const handleAddInventory = (event: React.FormEvent) => {
+    event.preventDefault();
+    const itemName = (document.getElementById('newInventoryName') as HTMLInputElement).value;
+    if (itemName.trim()) {
+      const newItem: InventoryItem = { name: itemName.trim(), count: 0 };
+      const updatedInventory = [...inventory, newItem];
+      setInventory(updatedInventory);
+      saveInventory(updatedInventory);
+      setShowAddInventoryForm(false);
+      toast({
+        title: "Inventory Item Added",
+        description: `${itemName} added to inventory`
+      });
+    }
+  };
+
+  const filteredStockTransactions = stockTransactions.filter(transaction =>
+    transaction.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    transaction.phoneNumber.includes(searchTerm) ||
+    transaction.stockBought.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const calculateStockValue = (item: StockItem) => {
+    // Default rate per kg for calculation (can be made configurable)
+    const defaultRate = 45; // ₹45 per kg
+    return ((item.kg25 * 25) + (item.kg50 * 50)) * defaultRate;
   };
 
   return (
@@ -250,278 +312,322 @@ const Store = () => {
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6">Store Management</h1>
 
-        {/* Inventory Section */}
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle className="flex items-center">
-                <Package className="mr-2" />
-                Inventory Items
-              </CardTitle>
-              <Button onClick={() => setShowInventoryForm(!showInventoryForm)}>
-                <Plus size={20} className="mr-2" />
-                Add New Inventory Item
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {showInventoryForm && (
-              <div className="mb-4 p-4 border rounded">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>Item Name</Label>
-                    <Input placeholder="Enter item name" id="new-inventory-name" />
-                  </div>
-                  <div>
-                    <Label>Initial Count</Label>
-                    <Input type="number" min="0" placeholder="0" id="new-inventory-count" />
+        <Tabs defaultValue="stock" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="stock">Stock Management</TabsTrigger>
+            <TabsTrigger value="inventory">Inventory Management</TabsTrigger>
+          </TabsList>
+
+          {/* Stock Management Tab */}
+          <TabsContent value="stock" className="space-y-6">
+            {/* Stock Items */}
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>Stock Items</CardTitle>
+                  <div className="flex space-x-2">
+                    <Button onClick={() => setShowAddStockForm(true)} size="sm">
+                      <Plus className="mr-2" size={16} />
+                      Add New Stock
+                    </Button>
+                    <Button onClick={() => setShowStockSaleForm(true)}>
+                      <DollarSign className="mr-2" size={20} />
+                      Record Stock Sale
+                    </Button>
                   </div>
                 </div>
-                <div className="mt-4 flex space-x-2">
-                  <Button onClick={handleAddInventoryItem}>Add Item</Button>
-                  <Button variant="outline" onClick={() => setShowInventoryForm(false)}>Cancel</Button>
-                </div>
-              </div>
-            )}
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {inventory.map((item, index) => (
-                <Card key={index}>
-                  <CardContent className="p-4">
-                    <div className="text-center">
-                      <h3 className="font-semibold mb-2">{item.name}</h3>
-                      <div className="text-2xl font-bold text-blue-600 mb-3">{item.count}</div>
-                      <div className="flex space-x-2">
-                        <Button size="sm" onClick={() => updateInventory(item.name, 1)}>
-                          <Plus size={16} />
-                        </Button>
-                        <Button size="sm" variant="outline" onClick={() => updateInventory(item.name, -1)}>
-                          <Minus size={16} />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Recent Inventory Changes */}
-            <div className="mt-6">
-              <Button 
-                variant="outline" 
-                onClick={() => setShowInventoryHistory(!showInventoryHistory)}
-                className="mb-4"
-              >
-                {showInventoryHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                <span className="ml-2">Recent Inventory Changes</span>
-              </Button>
-              
-              {showInventoryHistory && recentInventoryChange && (
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="font-semibold">{recentInventoryChange.item}</div>
-                        <div className="text-sm text-gray-600">
-                          Change: {recentInventoryChange.change > 0 ? '+' : ''}{recentInventoryChange.change}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {recentInventoryChange.date} at {recentInventoryChange.time}
-                        </div>
-                      </div>
-                      <Button size="sm" variant="destructive" onClick={deleteRecentInventoryChange}>
-                        <Trash2 size={16} />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-              
-              {showInventoryHistory && !recentInventoryChange && (
-                <div className="text-center py-4 text-gray-500">No recent changes</div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stock Section */}
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Stock Items</CardTitle>
-              <Button onClick={() => setShowStockSaleForm(true)}>
-                <DollarSign className="mr-2" size={20} />
-                Record Stock Sale
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-              {stock.map((item, index) => (
-                <Card key={index}>
-                  <CardContent className="p-4">
-                    <h3 className="font-semibold mb-3">{item.name}</h3>
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span>25kg Bags:</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-blue-600">{item.kg25}</span>
-                          <Button size="sm" onClick={() => updateStock(item.name, 1, 0)}>
-                            <Plus size={14} />
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => updateStock(item.name, -1, 0)}>
-                            <Minus size={14} />
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {stock.map((item, index) => (
+                    <Card key={index}>
+                      <CardContent className="p-4">
+                        <div className="flex justify-between items-start mb-3">
+                          <h3 className="font-semibold">{item.name}</h3>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => addStockCheckpoint(item.name)}
+                          >
+                            <Bookmark size={14} />
                           </Button>
                         </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <span>50kg Bags:</span>
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-green-600">{item.kg50}</span>
-                          <Button size="sm" onClick={() => updateStock(item.name, 0, 1)}>
-                            <Plus size={14} />
-                          </Button>
-                          <Button size="sm" variant="outline" onClick={() => updateStock(item.name, 0, -1)}>
-                            <Minus size={14} />
-                          </Button>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center">
+                            <span>25kg Bags:</span>
+                            <div className="flex items-center space-x-2">
+                              <Button size="sm" variant="outline" onClick={() => updateStock(item.name, -1, 0)}>
+                                <Minus size={14} />
+                              </Button>
+                              <Input
+                                type="number"
+                                value={item.kg25}
+                                onChange={(e) => {
+                                  const newValue = parseInt(e.target.value) || 0;
+                                  const change = newValue - item.kg25;
+                                  updateStock(item.name, change, 0);
+                                }}
+                                className="w-16 text-center"
+                              />
+                              <Button size="sm" onClick={() => updateStock(item.name, 1, 0)}>
+                                <Plus size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>50kg Bags:</span>
+                            <div className="flex items-center space-x-2">
+                              <Button size="sm" variant="outline" onClick={() => updateStock(item.name, 0, -1)}>
+                                <Minus size={14} />
+                              </Button>
+                              <Input
+                                type="number"
+                                value={item.kg50}
+                                onChange={(e) => {
+                                  const newValue = parseInt(e.target.value) || 0;
+                                  const change = newValue - item.kg50;
+                                  updateStock(item.name, 0, change);
+                                }}
+                                className="w-16 text-center"
+                              />
+                              <Button size="sm" onClick={() => updateStock(item.name, 0, 1)}>
+                                <Plus size={14} />
+                              </Button>
+                            </div>
+                          </div>
+                          <div className="border-t pt-2">
+                            <div className="flex justify-between text-sm">
+                              <span>Total Weight:</span>
+                              <span className="font-semibold">{(item.kg25 * 25) + (item.kg50 * 50)} kg</span>
+                            </div>
+                            <div className="flex justify-between text-sm">
+                              <span>Rate/kg:</span>
+                              <span>₹45</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-bold">
+                              <span>Total Value:</span>
+                              <span className="text-green-600">₹{calculateStockValue(item).toFixed(2)}</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Recent Stock Changes */}
-            <div className="mt-6">
-              <Button 
-                variant="outline" 
-                onClick={() => setShowStockHistory(!showStockHistory)}
-                className="mb-4"
-              >
-                {showStockHistory ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                <span className="ml-2">Recent Stock Changes</span>
-              </Button>
-              
-              {showStockHistory && recentStockChange && (
-                <Card>
-                  <CardContent className="p-4">
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <div className="font-semibold">{recentStockChange.item}</div>
-                        <div className="text-sm text-gray-600">
-                          25kg: {recentStockChange.kg25Change > 0 ? '+' : ''}{recentStockChange.kg25Change}, 
-                          50kg: {recentStockChange.kg50Change > 0 ? '+' : ''}{recentStockChange.kg50Change}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {recentStockChange.date} at {recentStockChange.time}
-                        </div>
-                      </div>
-                      <Button size="sm" variant="destructive" onClick={deleteRecentStockChange}>
-                        <Trash2 size={16} />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-              
-              {showStockHistory && !recentStockChange && (
-                <div className="text-center py-4 text-gray-500">No recent changes</div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stock Sales History */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Stock Sales History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-gray-300">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border border-gray-300 p-3 text-left">Date/Time</th>
-                    <th className="border border-gray-300 p-3 text-left">Customer</th>
-                    <th className="border border-gray-300 p-3 text-left">Stock</th>
-                    <th className="border border-gray-300 p-3 text-center">Quantity</th>
-                    <th className="border border-gray-300 p-3 text-center">Rate</th>
-                    <th className="border border-gray-300 p-3 text-center">Amount</th>
-                    <th className="border border-gray-300 p-3 text-center">Due</th>
-                    <th className="border border-gray-300 p-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stockTransactions
-                    .sort((a, b) => new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime())
-                    .map((transaction) => (
-                    <tr key={transaction.id}>
-                      <td className="border border-gray-300 p-3">
-                        <div className="text-sm">
-                          <div>{transaction.date}</div>
-                          <div className="text-gray-600">{transaction.time}</div>
-                        </div>
-                      </td>
-                      <td className="border border-gray-300 p-3">
-                        <div>
-                          <div className="font-medium">{transaction.customerName}</div>
-                          <div className="text-sm text-gray-600">{transaction.phoneNumber}</div>
-                          <div className="text-sm text-gray-500">{transaction.village}</div>
-                        </div>
-                      </td>
-                      <td className="border border-gray-300 p-3">{transaction.stockBought}</td>
-                      <td className="border border-gray-300 p-3 text-center">{transaction.quantity}</td>
-                      <td className="border border-gray-300 p-3 text-center">₹{transaction.rate.toFixed(2)}</td>
-                      <td className="border border-gray-300 p-3 text-center">₹{transaction.totalAmount.toFixed(2)}</td>
-                      <td className="border border-gray-300 p-3 text-center">
-                        {transaction.dueAmount > 0 ? (
-                          <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
-                        ) : (
-                          <Badge variant="default">Paid</Badge>
-                        )}
-                      </td>
-                      <td className="border border-gray-300 p-3 text-center">
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" variant="outline" onClick={() => setSelectedTransaction(transaction)}>
-                              <Eye size={16} />
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Transaction Details</DialogTitle>
-                            </DialogHeader>
-                            {selectedTransaction && (
-                              <div className="space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div><strong>Customer:</strong> {selectedTransaction.customerName}</div>
-                                  <div><strong>Phone:</strong> {selectedTransaction.phoneNumber}</div>
-                                  <div><strong>Village:</strong> {selectedTransaction.village}</div>
-                                  <div><strong>Stock:</strong> {selectedTransaction.stockBought}</div>
-                                  <div><strong>Quantity:</strong> {selectedTransaction.quantity}</div>
-                                  <div><strong>Rate:</strong> ₹{selectedTransaction.rate.toFixed(2)}</div>
-                                  <div><strong>Total Amount:</strong> ₹{selectedTransaction.totalAmount.toFixed(2)}</div>
-                                  <div><strong>Paid Amount:</strong> ₹{selectedTransaction.paidAmount.toFixed(2)}</div>
-                                  <div><strong>Due Amount:</strong> ₹{selectedTransaction.dueAmount.toFixed(2)}</div>
-                                  <div><strong>Date:</strong> {selectedTransaction.date}</div>
-                                  <div><strong>Time:</strong> {selectedTransaction.time}</div>
-                                </div>
-                              </div>
-                            )}
-                          </DialogContent>
-                        </Dialog>
-                      </td>
-                    </tr>
+                      </CardContent>
+                    </Card>
                   ))}
-                </tbody>
-              </table>
-            </div>
-            {stockTransactions.length === 0 && (
-              <div className="text-center py-8 text-gray-500">No stock sales recorded yet</div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Stock Sales History */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex justify-between items-center">
+                  <span>Stock Sales History</span>
+                  <div className="flex items-center space-x-2">
+                    <Search className="h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search sales..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-64"
+                    />
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-300 p-3 text-left">Date/Time</th>
+                        <th className="border border-gray-300 p-3 text-left">Customer</th>
+                        <th className="border border-gray-300 p-3 text-left">Stock</th>
+                        <th className="border border-gray-300 p-3 text-center">Quantity</th>
+                        <th className="border border-gray-300 p-3 text-center">Rate/kg</th>
+                        <th className="border border-gray-300 p-3 text-center">Amount</th>
+                        <th className="border border-gray-300 p-3 text-center">Due</th>
+                        <th className="border border-gray-300 p-3 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredStockTransactions.map((transaction) => (
+                        <tr key={transaction.id}>
+                          <td className="border border-gray-300 p-3">
+                            <div className="text-sm">
+                              <div>{transaction.date}</div>
+                              <div className="text-gray-600">{transaction.time}</div>
+                            </div>
+                          </td>
+                          <td className="border border-gray-300 p-3">
+                            <div>
+                              <div className="font-medium">{transaction.customerName}</div>
+                              <div className="text-sm text-gray-600">{transaction.phoneNumber}</div>
+                              <div className="text-sm text-gray-500">{transaction.village}</div>
+                            </div>
+                          </td>
+                          <td className="border border-gray-300 p-3">{transaction.stockBought}</td>
+                          <td className="border border-gray-300 p-3 text-center">{transaction.quantity}kg</td>
+                          <td className="border border-gray-300 p-3 text-center">₹{transaction.rate.toFixed(2)}</td>
+                          <td className="border border-gray-300 p-3 text-center">₹{transaction.totalAmount.toFixed(2)}</td>
+                          <td className="border border-gray-300 p-3 text-center">
+                            {transaction.dueAmount > 0 ? (
+                              <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                            ) : (
+                              <Badge variant="default">Paid</Badge>
+                            )}
+                          </td>
+                          <td className="border border-gray-300 p-3 text-center">
+                            <Dialog>
+                              <DialogTrigger asChild>
+                                <Button size="sm" variant="outline" onClick={() => setSelectedTransaction(transaction)}>
+                                  <Eye size={16} />
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent>
+                                <DialogHeader>
+                                  <DialogTitle>Transaction Details</DialogTitle>
+                                </DialogHeader>
+                                {selectedTransaction && (
+                                  <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                      <div><strong>Customer:</strong> {selectedTransaction.customerName}</div>
+                                      <div><strong>Phone:</strong> {selectedTransaction.phoneNumber}</div>
+                                      <div><strong>Village:</strong> {selectedTransaction.village}</div>
+                                      <div><strong>Stock:</strong> {selectedTransaction.stockBought}</div>
+                                      <div><strong>Quantity:</strong> {selectedTransaction.quantity}kg</div>
+                                      <div><strong>Rate:</strong> ₹{selectedTransaction.rate.toFixed(2)}/kg</div>
+                                      <div><strong>Total Amount:</strong> ₹{selectedTransaction.totalAmount.toFixed(2)}</div>
+                                      <div><strong>Paid Amount:</strong> ₹{selectedTransaction.paidAmount.toFixed(2)}</div>
+                                      <div><strong>Due Amount:</strong> ₹{selectedTransaction.dueAmount.toFixed(2)}</div>
+                                      <div><strong>Date:</strong> {selectedTransaction.date}</div>
+                                      <div><strong>Time:</strong> {selectedTransaction.time}</div>
+                                    </div>
+                                  </div>
+                                )}
+                              </DialogContent>
+                            </Dialog>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {filteredStockTransactions.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">No stock sales found</div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Stock Checkpoints */}
+            {stockCheckpoints.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Stock Checkpoints</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {stockCheckpoints.slice(0, 5).map((checkpoint) => (
+                      <div key={checkpoint.id} className="flex justify-between items-center p-2 border rounded">
+                        <div>
+                          <span className="font-medium">{checkpoint.stockName}</span>
+                          <span className="ml-2 text-sm text-gray-600">
+                            25kg: {checkpoint.kg25Count}, 50kg: {checkpoint.kg50Count}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {checkpoint.date} {checkpoint.timestamp}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             )}
-          </CardContent>
-        </Card>
+          </TabsContent>
+
+          {/* Inventory Management Tab */}
+          <TabsContent value="inventory" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle className="flex items-center">
+                    <Package className="mr-2" />
+                    Inventory Items
+                  </CardTitle>
+                  <Button onClick={() => setShowAddInventoryForm(true)}>
+                    <Plus size={20} className="mr-2" />
+                    Add New Item
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {inventory.map((item, index) => (
+                    <Card key={index}>
+                      <CardContent className="p-4">
+                        <div className="text-center">
+                          <div className="flex justify-between items-start mb-2">
+                            <h3 className="font-semibold">{item.name}</h3>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => addInventoryCheckpoint(item.name)}
+                            >
+                              <Bookmark size={14} />
+                            </Button>
+                          </div>
+                          <div className="flex items-center justify-center space-x-2 mb-3">
+                            <Button size="sm" variant="outline" onClick={() => updateInventory(item.name, -1)}>
+                              <Minus size={16} />
+                            </Button>
+                            <Input
+                              type="number"
+                              value={item.count}
+                              onChange={(e) => {
+                                const newValue = parseInt(e.target.value) || 0;
+                                const change = newValue - item.count;
+                                updateInventory(item.name, change);
+                              }}
+                              className="w-20 text-center text-2xl font-bold text-blue-600"
+                            />
+                            <Button size="sm" onClick={() => updateInventory(item.name, 1)}>
+                              <Plus size={16} />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Inventory Checkpoints */}
+            {inventoryCheckpoints.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Inventory Checkpoints</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {inventoryCheckpoints.slice(0, 5).map((checkpoint) => (
+                      <div key={checkpoint.id} className="flex justify-between items-center p-2 border rounded">
+                        <div>
+                          <span className="font-medium">{checkpoint.itemName}</span>
+                          <span className="ml-2 text-sm text-gray-600">
+                            Count: {checkpoint.count}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {checkpoint.date} {checkpoint.timestamp}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
 
         {/* Stock Sale Form Dialog */}
         <Dialog open={showStockSaleForm} onOpenChange={setShowStockSaleForm}>
@@ -551,25 +657,23 @@ const Store = () => {
                   ))}
                 </select>
               </div>
-              <div>
-                <Label htmlFor="packageType">Package Type *</Label>
-                <select id="packageType" required className="w-full px-3 py-2 border border-gray-300 rounded-md">
-                  <option value="">Select package type</option>
-                  <option value="25kg">25kg Bag</option>
-                  <option value="50kg">50kg Bag</option>
-                  <option value="mixed">Mixed (25kg + 50kg)</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div id="quantityInputs">
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="quantity">Total Weight (kg) *</Label>
-                  <Input id="quantity" type="number" min="0" step="0.01" required />
+                  <Label htmlFor="kg25Bags">25kg Bags</Label>
+                  <Input id="kg25Bags" type="number" min="0" defaultValue="0" />
+                </div>
+                <div>
+                  <Label htmlFor="kg50Bags">50kg Bags</Label>
+                  <Input id="kg50Bags" type="number" min="0" defaultValue="0" />
                 </div>
               </div>
               <div>
-                <Label htmlFor="totalAmount">Total Amount *</Label>
-                <Input id="totalAmount" type="number" min="0" step="0.01" required />
+                <Label htmlFor="customWeight">Custom Weight (kg)</Label>
+                <Input id="customWeight" type="number" min="0" step="0.01" defaultValue="0" />
+              </div>
+              <div>
+                <Label htmlFor="ratePerKg">Rate per Kg *</Label>
+                <Input id="ratePerKg" type="number" min="0" step="0.01" required />
               </div>
               <div>
                 <Label htmlFor="paidAmount">Paid Amount</Label>
@@ -585,6 +689,48 @@ const Store = () => {
           </DialogContent>
         </Dialog>
 
+        {/* Add Stock Form Dialog */}
+        <Dialog open={showAddStockForm} onOpenChange={setShowAddStockForm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add New Stock Item</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleAddStock} className="space-y-4">
+              <div>
+                <Label htmlFor="newStockName">Stock Name *</Label>
+                <Input id="newStockName" required placeholder="Enter stock name" />
+              </div>
+              <div className="flex space-x-2">
+                <Button type="submit" className="flex-1">Add Stock</Button>
+                <Button type="button" variant="outline" onClick={() => setShowAddStockForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Inventory Form Dialog */}
+        <Dialog open={showAddInventoryForm} onOpenChange={setShowAddInventoryForm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add New Inventory Item</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleAddInventory} className="space-y-4">
+              <div>
+                <Label htmlFor="newInventoryName">Item Name *</Label>
+                <Input id="newInventoryName" required placeholder="Enter item name" />
+              </div>
+              <div className="flex space-x-2">
+                <Button type="submit" className="flex-1">Add Item</Button>
+                <Button type="button" variant="outline" onClick={() => setShowAddInventoryForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+
         {/* Customer Due Alert */}
         <CustomerDueAlert
           isOpen={customerDueAlert.isOpen}
@@ -593,7 +739,6 @@ const Store = () => {
           phoneNumber={customerDueAlert.phoneNumber}
           dueAmount={customerDueAlert.dueAmount}
           onClearDue={() => {
-            // Handle due clearing logic here
             setCustomerDueAlert({ ...customerDueAlert, isOpen: false });
             toast({
               title: "Due Cleared",

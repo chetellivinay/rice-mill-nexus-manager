@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -28,7 +27,13 @@ const Transactions = () => {
   const [totalHamali, setTotalHamali] = useState(0);
 
   useEffect(() => {
-    setTransactions(getTransactions());
+    // Sort transactions by most recent first (date and time)
+    const sortedTransactions = getTransactions().sort((a, b) => {
+      const dateTimeA = new Date(`${a.date} ${a.time}`).getTime();
+      const dateTimeB = new Date(`${b.date} ${b.time}`).getTime();
+      return dateTimeB - dateTimeA;
+    });
+    setTransactions(sortedTransactions);
   }, []);
 
   const filteredTransactions = transactions.filter(transaction => {
