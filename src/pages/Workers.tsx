@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
@@ -5,134 +6,71 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, DollarSign, User, Edit, Check, X, History, Trash2 } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Edit, Save, X, DollarSign, User } from 'lucide-react';
 import { getWorkers, saveWorkers, WorkerRecord } from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
-interface WorkerTransaction {
-  id: string;
-  type: 'salary' | 'borrowed' | 'payment' | 'borrowed_cleared';
-  amount: number;
-  description: string;
-  date: string;
-  time: string;
-}
-
-interface EnhancedWorkerRecord extends WorkerRecord {
-  monthlySalary: number;
-  transactions: WorkerTransaction[];
+interface ExtendedWorkerRecord extends WorkerRecord {
+  paymentHistory: Array<{
+    id: string;
+    type: 'salary' | 'borrow' | 'repay';
+    amount: number;
+    date: string;
+    description?: string;
+  }>;
 }
 
 const Workers = () => {
-  const [workers, setWorkers] = useState<EnhancedWorkerRecord[]>([]);
+  const [workers, setWorkers] = useState<ExtendedWorkerRecord[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingWorker, setEditingWorker] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState<Partial<EnhancedWorkerRecord>>({});
+  const [editData, setEditData] = useState<any>({});
+  const [paymentAmounts, setPaymentAmounts] = useState<{[key: string]: string}>({});
   const [formData, setFormData] = useState({
     name: '',
-    borrowedAmount: '',
     salary: '',
-    monthlySalary: ''
+    borrowedAmount: '',
+    description: ''
   });
 
   useEffect(() => {
-    const savedWorkers = getWorkers();
-    // Convert old format to new format
-    const enhancedWorkers = savedWorkers.map(worker => ({
-      ...worker,
-      monthlySalary: (worker as any).monthlySalary || 0,
-      transactions: (worker as any).transactions || []
-    }));
-    setWorkers(enhancedWorkers);
+    loadWorkers();
   }, []);
 
-  const saveWorkersData = (workersData: EnhancedWorkerRecord[]) => {
-    setWorkers(workersData);
-    saveWorkers(workersData);
-  };
-
-  const calculateSalaryToBePaid = (worker: EnhancedWorkerRecord) => {
-    return worker.monthlySalary - worker.salary + worker.borrowedAmount;
-  };
-
-  const clearBorrowedAmount = (workerId: string) => {
-    const updatedWorkers = workers.map(worker => {
-      if (worker.id === workerId && worker.borrowedAmount > 0) {
-        const clearedAmount = worker.borrowedAmount;
-        const newTransaction: WorkerTransaction = {
-          id: Date.now().toString(),
-          type: 'borrowed_cleared',
-          amount: clearedAmount,
-          description: 'Borrowed amount cleared',
-          date: new Date().toLocaleDateString(),
-          time: new Date().toLocaleTimeString()
-        };
-
-        return {
-          ...worker,
-          borrowedAmount: 0,
-          totalDue: worker.monthlySalary - worker.salary,
-          transactions: [...worker.transactions, newTransaction]
-        };
-      }
-      return worker;
-    });
-    
-    saveWorkersData(updatedWorkers);
-    
-    toast({
-      title: "Borrowed Amount Cleared",
-      description: "Worker's borrowed amount has been cleared"
-    });
+  const loadWorkers = () => {
+    const workerData = getWorkers();
+    const extendedWorkers = workerData.map(worker => ({
+      ...worker,
+      paymentHistory: worker.paymentHistory || []
+    }));
+    setWorkers(extendedWorkers);
   };
 
   const handleAddWorker = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newWorker: EnhancedWorkerRecord = {
+    const newWorker: ExtendedWorkerRecord = {
       id: Date.now().toString(),
       name: formData.name,
-      borrowedAmount: parseFloat(formData.borrowedAmount) || 0,
       salary: parseFloat(formData.salary) || 0,
-      monthlySalary: parseFloat(formData.monthlySalary) || 0,
-      totalDue: (parseFloat(formData.borrowedAmount) || 0) - (parseFloat(formData.salary) || 0),
+      borrowedAmount: parseFloat(formData.borrowedAmount) || 0,
+      totalDue: parseFloat(formData.borrowedAmount) || 0,
       date: new Date().toLocaleDateString(),
-      transactions: []
+      paymentHistory: formData.borrowedAmount ? [{
+        id: Date.now().toString(),
+        type: 'borrow',
+        amount: parseFloat(formData.borrowedAmount),
+        date: new Date().toLocaleDateString(),
+        description: formData.description
+      }] : []
     };
 
-    // Add initial transactions
-    if (newWorker.borrowedAmount > 0) {
-      newWorker.transactions.push({
-        id: Date.now().toString(),
-        type: 'borrowed',
-        amount: newWorker.borrowedAmount,
-        description: 'Initial borrowed amount',
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString()
-      });
-    }
-
-    if (newWorker.salary > 0) {
-      newWorker.transactions.push({
-        id: (Date.now() + 1).toString(),
-        type: 'salary',
-        amount: newWorker.salary,
-        description: 'Initial salary payment',
-        date: new Date().toLocaleDateString(),
-        time: new Date().toLocaleTimeString()
-      });
-    }
-
     const updatedWorkers = [...workers, newWorker];
-    saveWorkersData(updatedWorkers);
+    setWorkers(updatedWorkers);
+    saveWorkers(updatedWorkers);
     
-    setFormData({
-      name: '',
-      borrowedAmount: '',
-      salary: '',
-      monthlySalary: ''
-    });
+    setFormData({ name: '', salary: '', borrowedAmount: '', description: '' });
     setShowAddForm(false);
     
     toast({
@@ -141,107 +79,90 @@ const Workers = () => {
     });
   };
 
-  const startEditWorker = (worker: EnhancedWorkerRecord) => {
-    setEditingWorker(worker.id);
-    setEditFormData(worker);
-  };
-
-  const saveEditWorker = () => {
-    if (!editingWorker || !editFormData.name) return;
-
-    const updatedWorkers = workers.map(worker => {
-      if (worker.id === editingWorker) {
-        const updatedWorker = {
-          ...worker,
-          name: editFormData.name || worker.name,
-          borrowedAmount: editFormData.borrowedAmount || worker.borrowedAmount,
-          salary: editFormData.salary || worker.salary,
-          monthlySalary: editFormData.monthlySalary || worker.monthlySalary,
-          totalDue: (editFormData.borrowedAmount || worker.borrowedAmount) - (editFormData.salary || worker.salary)
-        };
-        return updatedWorker;
-      }
-      return worker;
-    });
-    
-    saveWorkersData(updatedWorkers);
-    setEditingWorker(null);
-    setEditFormData({});
-    
-    toast({
-      title: "Success",
-      description: "Worker updated successfully"
-    });
-  };
-
-  const cancelEditWorker = () => {
-    setEditingWorker(null);
-    setEditFormData({});
-  };
-
-  const addTransaction = (workerId: string, type: 'salary' | 'borrowed' | 'payment', amount: number, description: string) => {
-    const updatedWorkers = workers.map(worker => {
-      if (worker.id === workerId) {
-        const newTransaction: WorkerTransaction = {
-          id: Date.now().toString(),
-          type,
-          amount,
-          description,
-          date: new Date().toLocaleDateString(),
-          time: new Date().toLocaleTimeString()
-        };
-
-        let updatedWorker = { ...worker };
-        updatedWorker.transactions = [...worker.transactions, newTransaction];
-
-        if (type === 'borrowed') {
-          updatedWorker.borrowedAmount += amount;
-        } else if (type === 'salary' || type === 'payment') {
-          updatedWorker.salary += amount;
-        }
-
-        updatedWorker.totalDue = updatedWorker.monthlySalary - updatedWorker.salary + updatedWorker.borrowedAmount;
-        return updatedWorker;
-      }
-      return worker;
-    });
-    
-    saveWorkersData(updatedWorkers);
-    
-    toast({
-      title: "Transaction Added",
-      description: `₹${amount} ${type} recorded for worker`
-    });
-  };
-
-  const makePayment = (id: string, paymentAmount: number) => {
-    addTransaction(id, 'payment', paymentAmount, 'Salary payment');
-  };
-
-  const markSalaryPaid = (id: string) => {
-    const worker = workers.find(w => w.id === id);
+  const startEditing = (workerId: string) => {
+    const worker = workers.find(w => w.id === workerId);
     if (worker) {
-      const salaryToBePaid = calculateSalaryToBePaid(worker);
-      if (salaryToBePaid > 0) {
-        addTransaction(id, 'payment', salaryToBePaid, 'Full salary payment');
-      }
+      setEditData({
+        name: worker.name,
+        salary: worker.salary.toString(),
+        borrowedAmount: worker.borrowedAmount.toString()
+      });
+      setEditingWorker(workerId);
     }
   };
 
-  const deleteWorker = (id: string) => {
-    const updatedWorkers = workers.filter(worker => worker.id !== id);
-    saveWorkersData(updatedWorkers);
+  const saveEdit = (workerId: string) => {
+    const updatedWorkers = workers.map(w => {
+      if (w.id === workerId) {
+        return {
+          ...w,
+          name: editData.name,
+          salary: parseFloat(editData.salary) || 0,
+          borrowedAmount: parseFloat(editData.borrowedAmount) || 0,
+          totalDue: parseFloat(editData.borrowedAmount) || 0
+        };
+      }
+      return w;
+    });
+    
+    setWorkers(updatedWorkers);
+    saveWorkers(updatedWorkers);
+    setEditingWorker(null);
+    setEditData({});
     
     toast({
-      title: "Worker Deleted",
-      description: "Worker record has been removed"
+      title: "Updated",
+      description: "Worker information updated successfully"
     });
   };
 
-  const getTotalBorrowed = () => workers.reduce((sum, w) => sum + w.borrowedAmount, 0);
-  const getTotalPaid = () => workers.reduce((sum, w) => sum + w.salary, 0);
-  const getTotalSalaryToBePaid = () => workers.reduce((sum, w) => sum + calculateSalaryToBePaid(w), 0);
-  const getTotalMonthlySalary = () => workers.reduce((sum, w) => sum + w.monthlySalary, 0);
+  const addPayment = (workerId: string, type: 'salary' | 'borrow' | 'repay', amount: number) => {
+    const updatedWorkers = workers.map(w => {
+      if (w.id === workerId) {
+        const newPayment = {
+          id: Date.now().toString(),
+          type,
+          amount,
+          date: new Date().toLocaleDateString()
+        };
+
+        let newTotalDue = w.totalDue;
+        if (type === 'borrow') {
+          newTotalDue += amount;
+        } else if (type === 'repay') {
+          newTotalDue = Math.max(0, newTotalDue - amount);
+        }
+
+        return {
+          ...w,
+          borrowedAmount: type === 'borrow' ? w.borrowedAmount + amount : w.borrowedAmount,
+          totalDue: newTotalDue,
+          paymentHistory: [...(w.paymentHistory || []), newPayment]
+        };
+      }
+      return w;
+    });
+    
+    setWorkers(updatedWorkers);
+    saveWorkers(updatedWorkers);
+    setPaymentAmounts({...paymentAmounts, [workerId]: ''});
+    
+    toast({
+      title: "Payment Recorded",
+      description: `${type.charAt(0).toUpperCase() + type.slice(1)} of ₹${amount} recorded successfully`
+    });
+  };
+
+  const getTotalSalaryPaid = () => {
+    return workers.reduce((sum, w) => {
+      const salaryPayments = w.paymentHistory?.filter(p => p.type === 'salary').reduce((s, p) => s + p.amount, 0) || 0;
+      return sum + salaryPayments;
+    }, 0);
+  };
+
+  const getTotalBorrowed = () => {
+    return workers.reduce((sum, w) => sum + w.totalDue, 0);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -255,33 +176,27 @@ const Workers = () => {
           </Button>
         </div>
 
-        {/* Summary */}
-        <Card className="mb-6">
-          <CardContent className="p-4">
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{workers.length}</div>
-                <div className="text-sm text-gray-600">Total Workers</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-orange-600">₹{getTotalBorrowed().toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Total Borrowed</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">₹{getTotalPaid().toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Total Paid</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-red-600">₹{getTotalSalaryToBePaid().toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Salary To Be Paid</div>
-              </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">₹{getTotalMonthlySalary().toFixed(2)}</div>
-                <div className="text-sm text-gray-600">Monthly Salary</div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {/* Summary Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-blue-600">{workers.length}</div>
+              <div className="text-sm text-gray-600">Total Workers</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-green-600">₹{getTotalSalaryPaid().toFixed(2)}</div>
+              <div className="text-sm text-gray-600">Total Salary Paid</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-4 text-center">
+              <div className="text-2xl font-bold text-red-600">₹{getTotalBorrowed().toFixed(2)}</div>
+              <div className="text-sm text-gray-600">Total Amount Due</div>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Add Worker Form */}
         {showAddForm && (
@@ -290,7 +205,7 @@ const Workers = () => {
               <CardTitle>Add New Worker</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleAddWorker} className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <form onSubmit={handleAddWorker} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="name">Worker Name *</Label>
                   <Input
@@ -301,31 +216,7 @@ const Workers = () => {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="monthlySalary">Monthly Salary</Label>
-                  <Input
-                    id="monthlySalary"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.monthlySalary}
-                    onChange={(e) => setFormData({...formData, monthlySalary: e.target.value})}
-                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="borrowedAmount">Borrowed Amount</Label>
-                  <Input
-                    id="borrowedAmount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={formData.borrowedAmount}
-                    onChange={(e) => setFormData({...formData, borrowedAmount: e.target.value})}
-                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="salary">Initial Salary Paid</Label>
+                  <Label htmlFor="salary">Monthly Salary</Label>
                   <Input
                     id="salary"
                     type="number"
@@ -333,10 +224,29 @@ const Workers = () => {
                     step="0.01"
                     value={formData.salary}
                     onChange={(e) => setFormData({...formData, salary: e.target.value})}
-                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                   />
                 </div>
-                <div className="flex space-x-2 md:col-span-4">
+                <div>
+                  <Label htmlFor="borrowedAmount">Initial Borrowed Amount</Label>
+                  <Input
+                    id="borrowedAmount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.borrowedAmount}
+                    onChange={(e) => setFormData({...formData, borrowedAmount: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="description">Description</Label>
+                  <Input
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({...formData, description: e.target.value})}
+                    placeholder="Additional notes"
+                  />
+                </div>
+                <div className="flex space-x-2 md:col-span-2">
                   <Button type="submit" className="bg-green-600 hover:bg-green-700">
                     Add Worker
                   </Button>
@@ -350,276 +260,181 @@ const Workers = () => {
         )}
 
         {/* Workers List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {workers.map((worker) => {
-            const salaryToBePaid = calculateSalaryToBePaid(worker);
-            return (
-              <Card key={worker.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader className="pb-3">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <CardTitle className="text-lg flex items-center">
-                        <User size={20} className="mr-2" />
-                        {worker.name}
-                      </CardTitle>
-                      <div className="text-sm text-gray-600 mt-1">
-                        Monthly Salary: ₹{worker.monthlySalary.toFixed(2)}
+        <div className="space-y-4">
+          {workers.map((worker) => (
+            <Card key={worker.id}>
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    {editingWorker === worker.id ? (
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <Input
+                          value={editData.name}
+                          onChange={(e) => setEditData({...editData, name: e.target.value})}
+                          placeholder="Worker name"
+                        />
+                        <Input
+                          type="number"
+                          value={editData.salary}
+                          onChange={(e) => setEditData({...editData, salary: e.target.value})}
+                          placeholder="Monthly salary"
+                        />
+                        <div className="flex space-x-2">
+                          <Button size="sm" onClick={() => saveEdit(worker.id)}>
+                            <Save size={16} className="mr-1" />
+                            Save
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setEditingWorker(null)}>
+                            <X size={16} className="mr-1" />
+                            Cancel
+                          </Button>
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-600">
-                        Joined: {worker.date}
-                      </div>
-                    </div>
-                    <div className="flex flex-col space-y-1">
-                      <Badge variant={salaryToBePaid <= 0 ? "default" : "destructive"}>
-                        {salaryToBePaid <= 0 ? "Paid" : "Pending"}
+                    ) : (
+                      <>
+                        <CardTitle className="flex items-center gap-2">
+                          <User className="h-5 w-5" />
+                          {worker.name}
+                        </CardTitle>
+                        <div className="text-sm text-gray-600 mt-1">
+                          Monthly Salary: ₹{worker.salary.toFixed(2)} • 
+                          Total Due: ₹{worker.totalDue.toFixed(2)} • 
+                          Joined: {worker.date}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {editingWorker !== worker.id && (
+                    <div className="flex items-center space-x-2">
+                      <Badge variant={worker.totalDue > 0 ? "destructive" : "secondary"}>
+                        Due: ₹{worker.totalDue.toFixed(2)}
                       </Badge>
-                      <div className="flex space-x-1">
-                        <Button size="sm" variant="outline" onClick={() => startEditWorker(worker)}>
-                          <Edit size={16} />
-                        </Button>
-                        <Button size="sm" variant="destructive" onClick={() => deleteWorker(worker.id)}>
-                          <X size={16} />
-                        </Button>
-                      </div>
+                      <Button size="sm" variant="outline" onClick={() => startEditing(worker.id)}>
+                        <Edit size={16} className="mr-1" />
+                        Edit
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Salary Payment */}
+                  <div className="space-y-2">
+                    <Label>Pay Salary</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Amount"
+                        value={paymentAmounts[`${worker.id}_salary`] || ''}
+                        onChange={(e) => setPaymentAmounts({
+                          ...paymentAmounts,
+                          [`${worker.id}_salary`]: e.target.value
+                        })}
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const amount = parseFloat(paymentAmounts[`${worker.id}_salary`] || '0');
+                          if (amount > 0) {
+                            addPayment(worker.id, 'salary', amount);
+                          }
+                        }}
+                      >
+                        Pay
+                      </Button>
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Borrowed:</span>
-                      <span className="font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Salary Paid:</span>
-                      <span className="font-bold text-green-600">₹{worker.salary.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Salary To Be Paid:</span>
-                      <span className={`font-bold ${salaryToBePaid <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        ₹{salaryToBePaid.toFixed(2)}
-                      </span>
-                    </div>
-                    
-                    <div className="pt-3 border-t space-y-2">
-                      {worker.borrowedAmount > 0 && (
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          className="w-full"
-                          onClick={() => clearBorrowedAmount(worker.id)}
-                        >
-                          <Trash2 size={16} className="mr-1" />
-                          Clear Borrowed Amount
-                        </Button>
-                      )}
 
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="outline" className="w-full">
-                            <History size={16} className="mr-1" />
-                            View History
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-                          <DialogHeader>
-                            <DialogTitle>Transaction History - {worker.name}</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4">
-                            <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded">
-                              <div className="text-center">
-                                <div className="text-lg font-bold text-orange-600">₹{worker.borrowedAmount.toFixed(2)}</div>
-                                <div className="text-sm text-gray-600">Total Borrowed</div>
-                              </div>
-                              <div className="text-center">
-                                <div className="text-lg font-bold text-green-600">₹{worker.salary.toFixed(2)}</div>
-                                <div className="text-sm text-gray-600">Total Paid</div>
-                              </div>
-                              <div className="text-center">
-                                <div className={`text-lg font-bold ${salaryToBePaid <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                  ₹{salaryToBePaid.toFixed(2)}
-                                </div>
-                                <div className="text-sm text-gray-600">Salary To Be Paid</div>
-                              </div>
-                            </div>
-                            
-                            <div className="overflow-x-auto">
-                              <table className="w-full border-collapse border border-gray-300">
-                                <thead>
-                                  <tr className="bg-gray-100">
-                                    <th className="border border-gray-300 p-2 text-left">Date</th>
-                                    <th className="border border-gray-300 p-2 text-left">Type</th>
-                                    <th className="border border-gray-300 p-2 text-center">Amount</th>
-                                    <th className="border border-gray-300 p-2 text-left">Description</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {worker.transactions
-                                    .sort((a, b) => new Date(`${b.date} ${b.time}`).getTime() - new Date(`${a.date} ${a.time}`).getTime())
-                                    .map((transaction) => (
-                                    <tr key={transaction.id}>
-                                      <td className="border border-gray-300 p-2">
-                                        <div className="text-sm">
-                                          <div>{transaction.date}</div>
-                                          <div className="text-gray-600">{transaction.time}</div>
-                                        </div>
-                                      </td>
-                                      <td className="border border-gray-300 p-2">
-                                        <Badge variant={
-                                          transaction.type === 'borrowed' ? 'destructive' : 
-                                          transaction.type === 'borrowed_cleared' ? 'secondary' :
-                                          transaction.type === 'salary' ? 'default' : 'secondary'
-                                        }>
-                                          {transaction.type === 'borrowed_cleared' ? 'cleared' : transaction.type}
-                                        </Badge>
-                                      </td>
-                                      <td className="border border-gray-300 p-2 text-center font-bold">
-                                        ₹{transaction.amount.toFixed(2)}
-                                      </td>
-                                      <td className="border border-gray-300 p-2">{transaction.description}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                            
-                            {worker.transactions.length === 0 && (
-                              <div className="text-center py-4 text-gray-500">
-                                No transactions recorded yet
-                              </div>
-                            )}
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-
-                      {salaryToBePaid > 0 && (
-                        <Dialog>
-                          <DialogTrigger asChild>
-                            <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
-                              <DollarSign size={16} className="mr-1" />
-                              Make Payment
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>Make Payment to {worker.name}</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4">
-                              <div>
-                                <Label>Payment Amount</Label>
-                                <Input
-                                  type="number"
-                                  min="0"
-                                  max={salaryToBePaid}
-                                  step="0.01"
-                                  placeholder="Enter payment amount"
-                                  id={`payment-${worker.id}`}
-                                  className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                                />
-                              </div>
-                              <div className="flex space-x-2">
-                                <Button
-                                  onClick={() => {
-                                    const input = document.getElementById(`payment-${worker.id}`) as HTMLInputElement;
-                                    const amount = parseFloat(input?.value || '0');
-                                    if (amount > 0) {
-                                      makePayment(worker.id, amount);
-                                      input.value = '';
-                                    }
-                                  }}
-                                  className="bg-green-600 hover:bg-green-700"
-                                >
-                                  Record Payment
-                                </Button>
-                                <Button
-                                  onClick={() => markSalaryPaid(worker.id)}
-                                  variant="outline"
-                                >
-                                  Pay Full Amount
-                                </Button>
-                              </div>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                      )}
-
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button size="sm" variant="outline" className="w-full">
-                            Add Transaction
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent>
-                          <DialogHeader>
-                            <DialogTitle>Add Transaction for {worker.name}</DialogTitle>
-                          </DialogHeader>
-                          <div className="space-y-4">
-                            <div>
-                              <Label>Transaction Type</Label>
-                              <select
-                                id={`transaction-type-${worker.id}`}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                              >
-                                <option value="salary">Salary Payment</option>
-                                <option value="borrowed">Borrowed Amount</option>
-                                <option value="payment">Other Payment</option>
-                              </select>
-                            </div>
-                            <div>
-                              <Label>Amount</Label>
-                              <Input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                placeholder="Enter amount"
-                                id={`transaction-amount-${worker.id}`}
-                                className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                              />
-                            </div>
-                            <div>
-                              <Label>Description</Label>
-                              <Input
-                                placeholder="Enter description"
-                                id={`transaction-desc-${worker.id}`}
-                              />
-                            </div>
-                            <Button
-                              onClick={() => {
-                                const typeSelect = document.getElementById(`transaction-type-${worker.id}`) as HTMLSelectElement;
-                                const amountInput = document.getElementById(`transaction-amount-${worker.id}`) as HTMLInputElement;
-                                const descInput = document.getElementById(`transaction-desc-${worker.id}`) as HTMLInputElement;
-                                
-                                const type = typeSelect.value as 'salary' | 'borrowed' | 'payment';
-                                const amount = parseFloat(amountInput.value || '0');
-                                const description = descInput.value || '';
-                                
-                                if (amount > 0) {
-                                  addTransaction(worker.id, type, amount, description);
-                                  amountInput.value = '';
-                                  descInput.value = '';
-                                }
-                              }}
-                              className="w-full"
-                            >
-                              Add Transaction
-                            </Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
+                  {/* Borrow Money */}
+                  <div className="space-y-2">
+                    <Label>Borrow Money</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Amount"
+                        value={paymentAmounts[`${worker.id}_borrow`] || ''}
+                        onChange={(e) => setPaymentAmounts({
+                          ...paymentAmounts,
+                          [`${worker.id}_borrow`]: e.target.value
+                        })}
+                      />
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => {
+                          const amount = parseFloat(paymentAmounts[`${worker.id}_borrow`] || '0');
+                          if (amount > 0) {
+                            addPayment(worker.id, 'borrow', amount);
+                          }
+                        }}
+                      >
+                        Lend
+                      </Button>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+
+                  {/* Repay Money */}
+                  <div className="space-y-2">
+                    <Label>Repay Money</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        type="number"
+                        min="0"
+                        max={worker.totalDue}
+                        step="0.01"
+                        placeholder="Amount"
+                        value={paymentAmounts[`${worker.id}_repay`] || ''}
+                        onChange={(e) => setPaymentAmounts({
+                          ...paymentAmounts,
+                          [`${worker.id}_repay`]: e.target.value
+                        })}
+                      />
+                      <Button
+                        size="sm"
+                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() => {
+                          const amount = parseFloat(paymentAmounts[`${worker.id}_repay`] || '0');
+                          if (amount > 0 && amount <= worker.totalDue) {
+                            addPayment(worker.id, 'repay', amount);
+                          }
+                        }}
+                      >
+                        Repay
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment History */}
+                {worker.paymentHistory && worker.paymentHistory.length > 0 && (
+                  <div className="mt-4">
+                    <Label className="text-sm font-medium">Recent Transactions</Label>
+                    <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                      {worker.paymentHistory.slice(-5).reverse().map((payment) => (
+                        <div key={payment.id} className="text-xs text-gray-600 flex justify-between">
+                          <span>
+                            {payment.type.charAt(0).toUpperCase() + payment.type.slice(1)} - ₹{payment.amount.toFixed(2)}
+                          </span>
+                          <span>{payment.date}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
         {workers.length === 0 && (
           <div className="text-center py-12">
-            <div className="text-gray-500 text-lg">No workers found</div>
-            <Button onClick={() => setShowAddForm(true)} className="mt-4">
-              Add First Worker
-            </Button>
+            <div className="text-gray-500 text-lg">No workers added yet</div>
+            <p className="text-sm text-gray-400 mt-2">Add workers to manage their salary and borrowed amounts</p>
           </div>
         )}
       </div>

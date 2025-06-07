@@ -5,10 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, ComposedChart } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { CalendarIcon, BarChart3, TrendingUp, Users, DollarSign } from 'lucide-react';
 import { format } from 'date-fns';
-import { getTransactions, getQueueCustomers, getWorkers, getStockTransactions, getDues } from '@/utils/localStorage';
+import { getTransactions, getQueueCustomers, getWorkers, getStockTransactions } from '@/utils/localStorage';
 import { cn } from '@/lib/utils';
 
 const Analytics = () => {
@@ -18,14 +18,12 @@ const Analytics = () => {
   const [stockTransactions, setStockTransactions] = useState<any[]>([]);
   const [queueCustomers, setQueueCustomers] = useState<any[]>([]);
   const [workers, setWorkers] = useState<any[]>([]);
-  const [dues, setDues] = useState<any[]>([]);
 
   useEffect(() => {
     setTransactions(getTransactions());
     setStockTransactions(getStockTransactions());
     setQueueCustomers(getQueueCustomers());
     setWorkers(getWorkers());
-    setDues(getDues());
   }, []);
 
   const filterDataByDate = (data: any[], date: Date) => {
@@ -63,21 +61,13 @@ const Analytics = () => {
   const getTotalRevenue = () => {
     const transactionRevenue = filteredData.transactions.reduce((sum, t) => sum + t.totalAmount, 0);
     const stockRevenue = filteredData.stockTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
-    return { total: transactionRevenue + stockRevenue, billing: transactionRevenue, stock: stockRevenue };
+    return transactionRevenue + stockRevenue;
   };
 
   const getTotalDues = () => {
-    const today = new Date().toLocaleDateString();
     const transactionDues = filteredData.transactions.reduce((sum, t) => sum + t.dueAmount, 0);
     const stockDues = filteredData.stockTransactions.reduce((sum, t) => sum + t.dueAmount, 0);
-    
-    const todayTransactionDues = transactions.filter(t => t.date === today).reduce((sum, t) => sum + t.dueAmount, 0);
-    const todayStockDues = stockTransactions.filter(t => t.date === today).reduce((sum, t) => sum + t.dueAmount, 0);
-    
-    return { 
-      total: transactionDues + stockDues, 
-      today: todayTransactionDues + todayStockDues 
-    };
+    return transactionDues + stockDues;
   };
 
   const getMonthlyData = () => {
@@ -88,11 +78,10 @@ const Analytics = () => {
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
       if (!months[monthKey]) {
-        months[monthKey] = { month: monthKey, billingRevenue: 0, stockRevenue: 0, totalRevenue: 0, transactions: 0 };
+        months[monthKey] = { month: monthKey, revenue: 0, transactions: 0 };
       }
       
-      months[monthKey].billingRevenue += transaction.totalAmount;
-      months[monthKey].totalRevenue += transaction.totalAmount;
+      months[monthKey].revenue += transaction.totalAmount;
       months[monthKey].transactions += 1;
     });
 
@@ -101,11 +90,10 @@ const Analytics = () => {
       const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       
       if (!months[monthKey]) {
-        months[monthKey] = { month: monthKey, billingRevenue: 0, stockRevenue: 0, totalRevenue: 0, transactions: 0 };
+        months[monthKey] = { month: monthKey, revenue: 0, transactions: 0 };
       }
       
-      months[monthKey].stockRevenue += transaction.totalAmount;
-      months[monthKey].totalRevenue += transaction.totalAmount;
+      months[monthKey].revenue += transaction.totalAmount;
       months[monthKey].transactions += 1;
     });
 
@@ -128,27 +116,10 @@ const Analytics = () => {
     return Object.values(services);
   };
 
-  const getStockDistribution = () => {
-    const stocks = {};
-    
-    filteredData.stockTransactions.forEach(transaction => {
-      if (!stocks[transaction.stockBought]) {
-        stocks[transaction.stockBought] = { name: transaction.stockBought, value: 0, quantity: 0 };
-      }
-      stocks[transaction.stockBought].value += transaction.totalAmount;
-      stocks[transaction.stockBought].quantity += transaction.quantity;
-    });
-
-    return Object.values(stocks);
-  };
-
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D'];
 
   const monthlyData = getMonthlyData();
   const serviceData = getServiceDistribution();
-  const stockData = getStockDistribution();
-  const revenueData = getTotalRevenue();
-  const duesData = getTotalDues();
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -215,11 +186,10 @@ const Analytics = () => {
               <DollarSign className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">₹{revenueData.total.toFixed(2)}</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                <div>Billing: ₹{revenueData.billing.toFixed(2)}</div>
-                <div>Stock: ₹{revenueData.stock.toFixed(2)}</div>
-              </div>
+              <div className="text-2xl font-bold">₹{getTotalRevenue().toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">
+                {selectedDateRange.from && selectedDateRange.to ? 'Selected period' : 'Today'}
+              </p>
             </CardContent>
           </Card>
 
@@ -242,10 +212,8 @@ const Analytics = () => {
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-red-600">₹{duesData.total.toFixed(2)}</div>
-              <p className="text-xs text-muted-foreground">
-                Today: ₹{duesData.today.toFixed(2)}
-              </p>
+              <div className="text-2xl font-bold text-red-600">₹{getTotalDues().toFixed(2)}</div>
+              <p className="text-xs text-muted-foreground">Outstanding amount</p>
             </CardContent>
           </Card>
 
@@ -271,16 +239,14 @@ const Analytics = () => {
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <ComposedChart data={monthlyData}>
+                <LineChart data={monthlyData}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" />
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="billingRevenue" name="Billing Revenue" fill="#8884d8" />
-                  <Bar dataKey="stockRevenue" name="Stock Revenue" fill="#82ca9d" />
-                  <Line type="monotone" dataKey="totalRevenue" name="Total Revenue" stroke="#ff7300" strokeWidth={2} />
-                </ComposedChart>
+                  <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={2} />
+                </LineChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
@@ -313,34 +279,7 @@ const Analytics = () => {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <Card>
-            <CardHeader>
-              <CardTitle>Stock Distribution</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie
-                    data={stockData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#82ca9d"
-                    dataKey="value"
-                  >
-                    {stockData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
+        <div className="grid grid-cols-1 gap-6">
           <Card>
             <CardHeader>
               <CardTitle>Monthly Transaction Count</CardTitle>

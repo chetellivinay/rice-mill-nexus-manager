@@ -1,116 +1,169 @@
-
 import React, { useState, useEffect } from 'react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Plus, DollarSign, Trash2, Search, TrendingUp, Users, Package, FileText } from 'lucide-react';
-import { DueRecord, getDues, saveDues, getTransactions, getStockTransactions } from '@/utils/localStorage';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Plus, Search } from 'lucide-react';
+import { 
+  getTransactions, 
+  saveTransactions, 
+  getDues, 
+  saveDues, 
+  getStockTransactions,
+  saveStockTransactions,
+  DueRecord,
+  StockTransaction 
+} from '@/utils/localStorage';
 import { toast } from '@/hooks/use-toast';
 
 const Dues = () => {
-  const [dues, setDues] = useState<DueRecord[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [transactionDues, setTransactionDues] = useState<any[]>([]);
+  const [stockDues, setStockDues] = useState<StockTransaction[]>([]);
+  const [customDues, setCustomDues] = useState<DueRecord[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
-  const [selectedDueType, setSelectedDueType] = useState<'all' | 'transaction' | 'stock' | 'custom'>('all');
+  const [paymentAmounts, setPaymentAmounts] = useState<{[key: string]: string}>({});
+  const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     customerName: '',
-    type: 'bran' as 'bran' | 'rice' | 'custom',
+    type: 'custom' as 'bran' | 'rice' | 'custom',
     stockType: '',
     amount: '',
     description: ''
   });
 
   useEffect(() => {
-    setDues(getDues());
+    loadData();
   }, []);
 
-  const getTransactionDues = () => {
+  const loadData = () => {
     const transactions = getTransactions();
-    return transactions.filter(t => t.dueAmount > 0);
-  };
-
-  const getStockDues = () => {
-    const stockTransactions = getStockTransactions();
-    return stockTransactions.filter(t => t.dueAmount > 0);
-  };
-
-  const getCustomDues = () => {
-    return dues.filter(due => due.type === 'custom');
-  };
-
-  const filteredDues = dues.filter(due => {
-    const matchesSearch = due.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      due.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (due.stockType && due.stockType.toLowerCase().includes(searchTerm.toLowerCase()));
+    const dueTransactions = transactions.filter(t => t.dueAmount > 0);
+    setTransactionDues(dueTransactions);
     
-    if (selectedDueType === 'all') return matchesSearch;
-    return matchesSearch && due.type === selectedDueType;
-  });
+    const stockTransactions = getStockTransactions();
+    const stockDueTransactions = stockTransactions.filter(t => t.dueAmount > 0);
+    setStockDues(stockDueTransactions);
+    
+    setCustomDues(getDues());
+  };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const filterBySearch = (items: any[], searchField: string) => {
+    if (!searchTerm) return items;
+    return items.filter(item => 
+      item[searchField]?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.phoneNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  };
+
+  const handleAddDue = (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!formData.customerName || !formData.amount) {
-      toast({
-        title: "Error",
-        description: "Please fill in all required fields",
-        variant: "destructive"
-      });
-      return;
-    }
-
     const newDue: DueRecord = {
       id: Date.now().toString(),
       customerName: formData.customerName,
       type: formData.type,
-      stockType: formData.stockType,
+      stockType: formData.stockType || undefined,
       amount: parseFloat(formData.amount),
       description: formData.description,
       date: new Date().toLocaleDateString()
     };
 
-    const updatedDues = [...dues, newDue];
-    setDues(updatedDues);
+    const updatedDues = [...customDues, newDue];
+    setCustomDues(updatedDues);
     saveDues(updatedDues);
-
+    
     setFormData({
       customerName: '',
-      type: 'bran',
+      type: 'custom',
       stockType: '',
       amount: '',
       description: ''
     });
     setShowAddForm(false);
-
+    
     toast({
       title: "Success",
       description: "Due record added successfully"
     });
   };
 
-  const deleteDue = (id: string) => {
-    const updatedDues = dues.filter(due => due.id !== id);
-    setDues(updatedDues);
-    saveDues(updatedDues);
+  const handlePayTransactionDue = (transactionId: string, paymentAmount: number) => {
+    const transactions = getTransactions();
+    const updatedTransactions = transactions.map(t => {
+      if (t.id === transactionId) {
+        const newPaidAmount = t.paidAmount + paymentAmount;
+        const newDueAmount = Math.max(0, t.totalAmount - newPaidAmount);
+        return {
+          ...t,
+          paidAmount: newPaidAmount,
+          dueAmount: newDueAmount
+        };
+      }
+      return t;
+    });
+    
+    saveTransactions(updatedTransactions);
+    loadData();
     
     toast({
-      title: "Due Deleted",
-      description: "Due record has been deleted"
+      title: "Payment Processed",
+      description: `₹${paymentAmount} payment recorded successfully`
     });
   };
 
-  const transactionDues = getTransactionDues();
-  const stockDues = getStockDues();
-  const customDues = getCustomDues();
+  const handlePayStockDue = (transactionId: string, paymentAmount: number) => {
+    const stockTransactions = getStockTransactions();
+    const updatedTransactions = stockTransactions.map(t => {
+      if (t.id === transactionId) {
+        const newPaidAmount = t.paidAmount + paymentAmount;
+        const newDueAmount = Math.max(0, t.totalAmount - newPaidAmount);
+        return {
+          ...t,
+          paidAmount: newPaidAmount,
+          dueAmount: newDueAmount
+        };
+      }
+      return t;
+    });
+    
+    saveStockTransactions(updatedTransactions);
+    loadData();
+    
+    toast({
+      title: "Payment Processed",
+      description: `₹${paymentAmount} payment recorded for stock transaction`
+    });
+  };
 
-  const totalTransactionDues = transactionDues.reduce((sum, t) => sum + t.dueAmount, 0);
-  const totalStockDues = stockDues.reduce((sum, t) => sum + t.dueAmount, 0);
-  const totalCustomDues = customDues.reduce((sum, d) => sum + d.amount, 0);
-  const totalDues = totalTransactionDues + totalStockDues + totalCustomDues;
+  const clearCustomDue = (dueId: string) => {
+    const updatedDues = customDues.filter(d => d.id !== dueId);
+    setCustomDues(updatedDues);
+    saveDues(updatedDues);
+    
+    toast({
+      title: "Due Cleared",
+      description: "Due has been removed successfully"
+    });
+  };
+
+  const getTotalDues = () => {
+    const transactionTotal = transactionDues.reduce((sum, t) => sum + t.dueAmount, 0);
+    const stockTotal = stockDues.reduce((sum, t) => sum + t.dueAmount, 0);
+    const customTotal = customDues.reduce((sum, d) => sum + d.amount, 0);
+    return transactionTotal + stockTotal + customTotal;
+  };
+
+  const getCustomerDueAmount = (phone: string) => {
+    const transactionDue = transactionDues.find(t => t.phone === phone)?.dueAmount || 0;
+    const stockDue = stockDues.find(t => t.phoneNumber === phone)?.dueAmount || 0;
+    const customDue = customDues.filter(d => d.customerName.includes(phone)).reduce((sum, d) => sum + d.amount, 0);
+    return transactionDue + stockDue + customDue;
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -118,105 +171,46 @@ const Dues = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="flex justify-between items-center mb-6">
           <h1 className="text-3xl font-bold text-gray-800">Dues Management</h1>
-          <Button onClick={() => setShowAddForm(true)} className="bg-red-600 hover:bg-red-700">
+          <Button onClick={() => setShowAddForm(true)} className="bg-blue-600 hover:bg-blue-700">
             <Plus size={20} className="mr-2" />
-            Add Due
+            Add Due Record
           </Button>
         </div>
 
-        {/* Dues Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Total Dues</p>
-                  <p className="text-2xl font-bold text-red-600">₹{totalDues.toFixed(2)}</p>
-                  <p className="text-sm text-gray-500">{transactionDues.length + stockDues.length + customDues.length} records</p>
-                </div>
-                <TrendingUp className="h-8 w-8 text-red-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Transaction Dues</p>
-                  <p className="text-2xl font-bold text-blue-600">₹{totalTransactionDues.toFixed(2)}</p>
-                  <p className="text-sm text-gray-500">{transactionDues.length} records</p>
-                </div>
-                <FileText className="h-8 w-8 text-blue-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Stock Dues</p>
-                  <p className="text-2xl font-bold text-green-600">₹{totalStockDues.toFixed(2)}</p>
-                  <p className="text-sm text-gray-500">{stockDues.length} records</p>
-                </div>
-                <Package className="h-8 w-8 text-green-600" />
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Custom Dues</p>
-                  <p className="text-2xl font-bold text-orange-600">₹{totalCustomDues.toFixed(2)}</p>
-                  <p className="text-sm text-gray-500">{customDues.length} records</p>
-                </div>
-                <Users className="h-8 w-8 text-orange-600" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Search and Filter */}
+        {/* Search Bar */}
         <Card className="mb-6">
           <CardContent className="p-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                <Input
-                  placeholder="Search by customer name, description, or stock type..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input
+                placeholder="Search customers by name or phone..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Summary */}
+        <Card className="mb-6">
+          <CardContent className="p-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-red-600">₹{getTotalDues().toFixed(2)}</div>
+                <div className="text-sm text-gray-600">Total Dues</div>
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant={selectedDueType === 'all' ? 'default' : 'outline'}
-                  onClick={() => setSelectedDueType('all')}
-                >
-                  All
-                </Button>
-                <Button
-                  variant={selectedDueType === 'transaction' ? 'default' : 'outline'}
-                  onClick={() => setSelectedDueType('transaction')}
-                >
-                  Transaction
-                </Button>
-                <Button
-                  variant={selectedDueType === 'stock' ? 'default' : 'outline'}
-                  onClick={() => setSelectedDueType('stock')}
-                >
-                  Stock
-                </Button>
-                <Button
-                  variant={selectedDueType === 'custom' ? 'default' : 'outline'}
-                  onClick={() => setSelectedDueType('custom')}
-                >
-                  Custom
-                </Button>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-orange-600">{filterBySearch(transactionDues, 'name').length}</div>
+                <div className="text-sm text-gray-600">Transaction Dues</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{filterBySearch(stockDues, 'customerName').length}</div>
+                <div className="text-sm text-gray-600">Stock Dues</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">{filterBySearch(customDues, 'customerName').length}</div>
+                <div className="text-sm text-gray-600">Custom Dues</div>
               </div>
             </div>
           </CardContent>
@@ -226,10 +220,10 @@ const Dues = () => {
         {showAddForm && (
           <Card className="mb-6">
             <CardHeader>
-              <CardTitle>Add New Due</CardTitle>
+              <CardTitle>Add New Due Record</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <form onSubmit={handleAddDue} className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="customerName">Customer Name *</Label>
                   <Input
@@ -240,36 +234,36 @@ const Dues = () => {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="type">Type *</Label>
-                  <select
-                    id="type"
-                    required
-                    value={formData.type}
-                    onChange={(e) => setFormData({...formData, type: e.target.value as 'bran' | 'rice' | 'custom'})}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                  >
-                    <option value="bran">Bran</option>
-                    <option value="rice">Rice</option>
-                    <option value="custom">Custom</option>
-                  </select>
+                  <Label>Due Type *</Label>
+                  <Select value={formData.type} onValueChange={(value: any) => setFormData({...formData, type: value})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="bran">Bran Stock</SelectItem>
+                      <SelectItem value="rice">Rice Stock</SelectItem>
+                      <SelectItem value="custom">Custom Due</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
-                {formData.type !== 'custom' && (
+                {(formData.type === 'bran' || formData.type === 'rice') && (
                   <div>
                     <Label htmlFor="stockType">Stock Type</Label>
                     <Input
                       id="stockType"
                       value={formData.stockType}
                       onChange={(e) => setFormData({...formData, stockType: e.target.value})}
+                      placeholder="e.g., HMT Rice, JSR Rice, Bran"
                     />
                   </div>
                 )}
                 <div>
-                  <Label htmlFor="amount">Amount (₹) *</Label>
+                  <Label htmlFor="amount">Amount *</Label>
                   <Input
                     id="amount"
                     type="number"
-                    step="0.01"
                     min="0"
+                    step="0.01"
                     required
                     value={formData.amount}
                     onChange={(e) => setFormData({...formData, amount: e.target.value})}
@@ -282,12 +276,12 @@ const Dues = () => {
                     id="description"
                     value={formData.description}
                     onChange={(e) => setFormData({...formData, description: e.target.value})}
-                    placeholder="Additional details about the due"
+                    placeholder="Additional details about this due"
                   />
                 </div>
                 <div className="flex space-x-2 md:col-span-2">
-                  <Button type="submit" className="bg-red-600 hover:bg-red-700">
-                    Add Due
+                  <Button type="submit" className="bg-green-600 hover:bg-green-700">
+                    Add Due Record
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setShowAddForm(false)}>
                     Cancel
@@ -298,65 +292,173 @@ const Dues = () => {
           </Card>
         )}
 
-        {/* Dues List */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <DollarSign size={20} />
-              <span>Outstanding Dues</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse border border-gray-300">
-                <thead>
-                  <tr className="bg-gray-100">
-                    <th className="border border-gray-300 p-3 text-left">Date</th>
-                    <th className="border border-gray-300 p-3 text-left">Customer</th>
-                    <th className="border border-gray-300 p-3 text-left">Type</th>
-                    <th className="border border-gray-300 p-3 text-left">Stock Type</th>
-                    <th className="border border-gray-300 p-3 text-center">Amount</th>
-                    <th className="border border-gray-300 p-3 text-left">Description</th>
-                    <th className="border border-gray-300 p-3 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDues.map((due) => (
-                    <tr key={due.id}>
-                      <td className="border border-gray-300 p-3">{due.date}</td>
-                      <td className="border border-gray-300 p-3 font-medium">{due.customerName}</td>
-                      <td className="border border-gray-300 p-3">
-                        <Badge variant={due.type === 'bran' ? 'default' : due.type === 'rice' ? 'secondary' : 'outline'}>
-                          {due.type}
-                        </Badge>
-                      </td>
-                      <td className="border border-gray-300 p-3">{due.stockType || '-'}</td>
-                      <td className="border border-gray-300 p-3 text-center font-bold text-red-600">
-                        ₹{due.amount.toFixed(2)}
-                      </td>
-                      <td className="border border-gray-300 p-3">{due.description || '-'}</td>
-                      <td className="border border-gray-300 p-3 text-center">
+        <Tabs defaultValue="transaction" className="space-y-6">
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="transaction">Transaction Dues</TabsTrigger>
+            <TabsTrigger value="stock">Stock Dues</TabsTrigger>
+            <TabsTrigger value="custom">Custom Dues</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="transaction">
+            <Card>
+              <CardHeader>
+                <CardTitle>Transaction Dues</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {filterBySearch(transactionDues, 'name').map((transaction) => (
+                    <div key={transaction.id} className="flex justify-between items-center p-4 bg-orange-50 rounded-lg border">
+                      <div className="flex-1">
+                        <div className="font-medium">{transaction.name}</div>
+                        <div className="text-sm text-gray-600">
+                          {transaction.village} • {transaction.phone} • {transaction.date}
+                          {getCustomerDueAmount(transaction.phone) > transaction.dueAmount && (
+                            <Badge variant="destructive" className="ml-2">
+                              Total Due: ₹{getCustomerDueAmount(transaction.phone).toFixed(2)}
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="text-sm">
+                          Total: ₹{transaction.totalAmount.toFixed(2)} • 
+                          Paid: ₹{transaction.paidAmount.toFixed(2)} • 
+                          Due: ₹{transaction.dueAmount.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          max={transaction.dueAmount}
+                          step="0.01"
+                          placeholder="Payment amount"
+                          value={paymentAmounts[transaction.id] || ''}
+                          onChange={(e) => setPaymentAmounts({
+                            ...paymentAmounts,
+                            [transaction.id]: e.target.value
+                          })}
+                          className="w-32"
+                        />
                         <Button
                           size="sm"
-                          variant="destructive"
-                          onClick={() => deleteDue(due.id)}
+                          onClick={() => {
+                            const amount = parseFloat(paymentAmounts[transaction.id] || '0');
+                            if (amount > 0) {
+                              handlePayTransactionDue(transaction.id, amount);
+                              setPaymentAmounts({...paymentAmounts, [transaction.id]: ''});
+                            }
+                          }}
                         >
-                          <Trash2 size={16} />
+                          Pay
                         </Button>
-                      </td>
-                    </tr>
+                        <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                  {filterBySearch(transactionDues, 'name').length === 0 && (
+                    <div className="text-center text-gray-500 py-4">No transaction dues found</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-            {filteredDues.length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                {searchTerm ? 'No dues found matching your search' : 'No dues recorded yet'}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          <TabsContent value="stock">
+            <Card>
+              <CardHeader>
+                <CardTitle>Stock Dues</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {filterBySearch(stockDues, 'customerName').map((transaction) => (
+                    <div key={transaction.id} className="flex justify-between items-center p-4 bg-blue-50 rounded-lg border">
+                      <div className="flex-1">
+                        <div className="font-medium">{transaction.customerName}</div>
+                        <div className="text-sm text-gray-600">
+                          {transaction.village} • {transaction.phoneNumber} • {transaction.date}
+                        </div>
+                        <div className="text-sm">
+                          Stock: {transaction.stockBought} ({transaction.quantity}kg) • 
+                          Total: ₹{transaction.totalAmount.toFixed(2)} • 
+                          Paid: ₹{transaction.paidAmount.toFixed(2)} • 
+                          Due: ₹{transaction.dueAmount.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Input
+                          type="number"
+                          min="0"
+                          max={transaction.dueAmount}
+                          step="0.01"
+                          placeholder="Payment amount"
+                          value={paymentAmounts[transaction.id] || ''}
+                          onChange={(e) => setPaymentAmounts({
+                            ...paymentAmounts,
+                            [transaction.id]: e.target.value
+                          })}
+                          className="w-32"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const amount = parseFloat(paymentAmounts[transaction.id] || '0');
+                            if (amount > 0) {
+                              handlePayStockDue(transaction.id, amount);
+                              setPaymentAmounts({...paymentAmounts, [transaction.id]: ''});
+                            }
+                          }}
+                        >
+                          Pay
+                        </Button>
+                        <Badge variant="destructive">₹{transaction.dueAmount.toFixed(2)}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                  {filterBySearch(stockDues, 'customerName').length === 0 && (
+                    <div className="text-center text-gray-500 py-4">No stock dues found</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="custom">
+            <Card>
+              <CardHeader>
+                <CardTitle>Custom Dues</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {filterBySearch(customDues, 'customerName').map((due) => (
+                    <div key={due.id} className="flex justify-between items-center p-4 bg-purple-50 rounded-lg border">
+                      <div className="flex-1">
+                        <div className="font-medium">{due.customerName}</div>
+                        <div className="text-sm text-gray-600">
+                          {due.type === 'bran' ? 'Bran Stock' : due.type === 'rice' ? 'Rice Stock' : 'Custom Due'}
+                          {due.stockType && ` - ${due.stockType}`}
+                        </div>
+                        <div className="text-sm text-gray-600">{due.description}</div>
+                        <div className="text-xs text-gray-500">{due.date}</div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => clearCustomDue(due.id)}
+                        >
+                          Clear Due
+                        </Button>
+                        <Badge variant="secondary">₹{due.amount.toFixed(2)}</Badge>
+                      </div>
+                    </div>
+                  ))}
+                  {filterBySearch(customDues, 'customerName').length === 0 && (
+                    <div className="text-center text-gray-500 py-4">No custom dues found</div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );

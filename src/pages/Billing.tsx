@@ -1,515 +1,483 @@
 
 import React, { useState, useEffect } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Plus, Minus, Calculator, Save, Trash2, DollarSign } from 'lucide-react';
-import { 
-  getInventory, 
-  saveInventory, 
-  getTransactions, 
-  saveTransactions, 
-  getDefaultRates, 
-  saveRates,
-  Transaction,
-  BillingItem 
-} from '@/utils/localStorage';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Transaction, saveTransactions, getTransactions, getInventory, saveInventory, getDefaultRates, saveRates } from '@/utils/localStorage';
+import { checkDuesByPhone, getUniqueVillages } from '@/utils/duesChecker';
 import { toast } from '@/hooks/use-toast';
-import CustomerDueAlert from '@/components/CustomerDueAlert';
-import { checkDuesByPhone } from '@/utils/duesChecker';
-
-interface BillingFormData {
-  customerName: string;
-  village: string;
-  phoneNumber: string;
-  loadBrought: number;
-  items: BillingItem[];
-  totalAmount: number;
-  paidAmount: number;
-  dueAmount: number;
-}
-
-const formatPhoneNumber = (phoneNumber: string): string => {
-  const cleaned = ('' + phoneNumber).replace(/\D/g, '');
-  const match = cleaned.match(/^(\d{3})(\d{3})(\d{4})$/);
-  if (match) {
-    return '(' + match[1] + ') ' + match[2] + '-' + match[3];
-  }
-  return phoneNumber;
-};
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 
 const Billing = () => {
-  const [formData, setFormData] = useState<BillingFormData>({
-    customerName: '',
+  const [rates, setRates] = useState(getDefaultRates());
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showDueDialog, setShowDueDialog] = useState(false);
+  const [dueInfo, setDueInfo] = useState<any>(null);
+  const [includeOldDue, setIncludeOldDue] = useState(false);
+  const [villages] = useState(getUniqueVillages());
+  const [formData, setFormData] = useState({
+    name: '',
     village: '',
-    phoneNumber: '',
-    loadBrought: 0,
-    items: [],
-    totalAmount: 0,
-    paidAmount: 0,
-    dueAmount: 0
+    phone: '',
+    millingRate: rates.milling[0] as number,
+    millingQuantity: '',
+    powderQuantity: '',
+    bigBagsQuantity: '',
+    smallBagsQuantity: '',
+    branBagsQuantity: '',
+    unloadingQuantity: '',
+    loadingQuantity: '',
+    nukaluQuantity: '',
+    extraQuantity: '',
+    paidAmount: ''
   });
 
-  const [rates, setRates] = useState(getDefaultRates());
-  const [showRatesCard, setShowRatesCard] = useState(false);
-  const [inventory, setInventory] = useState(getInventory());
-  const [customerDueAlert, setCustomerDueAlert] = useState<{
-    isOpen: boolean;
-    customerName: string;
-    phoneNumber: string;
-    dueAmount: number;
-  }>({ isOpen: false, customerName: '', phoneNumber: '', dueAmount: 0 });
-
   useEffect(() => {
-    calculateTotal();
-  }, [formData.items, formData.paidAmount]);
-
-  const calculateTotal = () => {
-    const total = formData.items.reduce((sum, item) => sum + item.total, 0);
-    const due = total - formData.paidAmount;
-    setFormData(prev => ({
-      ...prev,
-      totalAmount: total,
-      dueAmount: Math.max(0, due)
-    }));
-  };
-
-  const addItem = (name: string, rate: number) => {
-    const existingItem = formData.items.find(item => item.name === name);
-    if (existingItem) {
-      updateItemQuantity(name, existingItem.quantity + 1);
-    } else {
-      const newItem: BillingItem = {
-        name,
-        rate,
-        quantity: 1,
-        total: rate
-      };
+    // Check if customer data was passed from queue
+    const billingCustomerData = localStorage.getItem('billingCustomerData');
+    if (billingCustomerData) {
+      const customerData = JSON.parse(billingCustomerData);
       setFormData(prev => ({
         ...prev,
-        items: [...prev.items, newItem]
+        name: customerData.name,
+        village: customerData.village,
+        phone: customerData.phoneNumber
       }));
+      
+      // Check for dues if phone number exists
+      if (customerData.phoneNumber) {
+        const dues = checkDuesByPhone(customerData.phoneNumber);
+        setDueInfo(dues);
+      }
+      
+      localStorage.removeItem('billingCustomerData');
+    }
+  }, []);
+
+  const handlePhoneInput = (value: string) => {
+    const numericValue = value.replace(/\D/g, '').slice(0, 10);
+    setFormData({...formData, phone: numericValue});
+    
+    // Check for dues when phone number is complete
+    if (numericValue.length === 10) {
+      const dues = checkDuesByPhone(numericValue);
+      setDueInfo(dues);
+    } else {
+      setDueInfo(null);
     }
   };
 
-  const updateItemQuantity = (name: string, newQuantity: number) => {
-    if (newQuantity <= 0) {
-      removeItem(name);
-      return;
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.map(item => 
-        item.name === name 
-          ? { ...item, quantity: newQuantity, total: item.rate * newQuantity }
-          : item
-      )
-    }));
+  const handleRateChange = (item: string, value: number) => {
+    const updatedRates = { ...rates, [item]: value };
+    setRates(updatedRates);
+    saveRates(updatedRates);
   };
 
-  const removeItem = (name: string) => {
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.filter(item => item.name !== name)
-    }));
+  const handleQuantityChange = (field: string, value: string) => {
+    setFormData({...formData, [field]: value});
   };
 
-  const updateItemRate = (name: string, newRate: number) => {
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items.map(item => 
-        item.name === name 
-          ? { ...item, rate: newRate, total: newRate * item.quantity }
-          : item
-      )
-    }));
+  const calculateItemTotal = (rate: number, quantity: string) => {
+    const qty = parseFloat(quantity) || 0;
+    return rate * qty;
   };
 
-  const handleSaveTransaction = () => {
-    if (!formData.customerName || !formData.phoneNumber || formData.items.length === 0) {
+  const calculateTotalAmount = () => {
+    const millingTotal = calculateItemTotal(formData.millingRate, formData.millingQuantity);
+    const powderTotal = calculateItemTotal(rates.powder, formData.powderQuantity);
+    const bigBagsTotal = calculateItemTotal(rates.bigBags, formData.bigBagsQuantity);
+    const smallBagsTotal = calculateItemTotal(rates.smallBags, formData.smallBagsQuantity);
+    const branBagsTotal = calculateItemTotal(rates.branBags, formData.branBagsQuantity);
+    const unloadingTotal = calculateItemTotal(rates.unloading, formData.unloadingQuantity);
+    const loadingTotal = calculateItemTotal(rates.loading, formData.loadingQuantity);
+    const nukaluTotal = calculateItemTotal(rates.nukalu, formData.nukaluQuantity);
+    const extraTotal = calculateItemTotal(rates.extra, formData.extraQuantity);
+
+    // Nukalu is subtracted from total as per requirement
+    const currentBillTotal = millingTotal + powderTotal + bigBagsTotal + smallBagsTotal + 
+           branBagsTotal + unloadingTotal + loadingTotal + extraTotal - nukaluTotal;
+    
+    // Add previous due if selected
+    return currentBillTotal + (includeOldDue && dueInfo ? dueInfo.totalDue : 0);
+  };
+
+  const totalAmount = calculateTotalAmount();
+  const paidAmount = parseFloat(formData.paidAmount) || 0;
+  const dueAmount = totalAmount - paidAmount;
+
+  const handleSave = () => {
+    if (!formData.name || !formData.village) {
       toast({
         title: "Error",
-        description: "Please fill in customer details and add at least one item"
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+    
+    if (formData.phone && formData.phone.length !== 10) {
+      toast({
+        title: "Error",
+        description: "Phone number must be exactly 10 digits",
+        variant: "destructive"
       });
       return;
     }
 
-    // Update inventory
-    const updatedInventory = inventory.map(invItem => {
-      const billedItem = formData.items.find(item => item.name === invItem.name);
-      if (billedItem) {
-        return { ...invItem, count: Math.max(0, invItem.count - billedItem.quantity) };
-      }
-      return invItem;
-    });
-    setInventory(updatedInventory);
-    saveInventory(updatedInventory);
+    // If there are dues and user hasn't decided, show due dialog
+    if (dueInfo && !showDueDialog) {
+      setShowDueDialog(true);
+      return;
+    }
+    
+    setShowConfirmDialog(true);
+  };
 
-    // Create transaction
+  const clearCustomerDues = (phoneNumber: string) => {
+    if (!phoneNumber) return;
+    
+    const transactions = getTransactions();
+    const updatedTransactions = transactions.map(transaction => {
+      if (transaction.phone === phoneNumber && transaction.dueAmount > 0) {
+        return { ...transaction, dueAmount: 0 };
+      }
+      return transaction;
+    });
+    
+    saveTransactions(updatedTransactions);
+  };
+
+  const confirmSave = () => {
+    const currentBillTotal = calculateTotalAmount() - (includeOldDue && dueInfo ? dueInfo.totalDue : 0);
+    
     const transaction: Transaction = {
       id: Date.now().toString(),
-      name: formData.customerName,
+      name: formData.name,
       village: formData.village,
-      phone: formData.phoneNumber,
-      items: formData.items,
-      totalAmount: formData.totalAmount,
-      paidAmount: formData.paidAmount,
-      dueAmount: formData.dueAmount,
+      phone: formData.phone,
+      items: [
+        { name: 'Milling', rate: formData.millingRate, quantity: parseFloat(formData.millingQuantity) || 0, total: calculateItemTotal(formData.millingRate, formData.millingQuantity) },
+        { name: 'Powder', rate: rates.powder, quantity: parseFloat(formData.powderQuantity) || 0, total: calculateItemTotal(rates.powder, formData.powderQuantity) },
+        { name: 'Big Bags', rate: rates.bigBags, quantity: parseFloat(formData.bigBagsQuantity) || 0, total: calculateItemTotal(rates.bigBags, formData.bigBagsQuantity) },
+        { name: 'Small Bags', rate: rates.smallBags, quantity: parseFloat(formData.smallBagsQuantity) || 0, total: calculateItemTotal(rates.smallBags, formData.smallBagsQuantity) },
+        { name: 'Bran Bags', rate: rates.branBags, quantity: parseFloat(formData.branBagsQuantity) || 0, total: calculateItemTotal(rates.branBags, formData.branBagsQuantity) },
+        { name: 'Unloading', rate: rates.unloading, quantity: parseFloat(formData.unloadingQuantity) || 0, total: calculateItemTotal(rates.unloading, formData.unloadingQuantity) },
+        { name: 'Loading', rate: rates.loading, quantity: parseFloat(formData.loadingQuantity) || 0, total: calculateItemTotal(rates.loading, formData.loadingQuantity) },
+        { name: 'Nukalu', rate: rates.nukalu, quantity: parseFloat(formData.nukaluQuantity) || 0, total: calculateItemTotal(rates.nukalu, formData.nukaluQuantity) },
+        { name: 'Extra Charges', rate: rates.extra, quantity: parseFloat(formData.extraQuantity) || 0, total: calculateItemTotal(rates.extra, formData.extraQuantity) }
+      ].filter(item => item.quantity > 0),
+      totalAmount: includeOldDue ? totalAmount : currentBillTotal,
+      paidAmount,
+      dueAmount: includeOldDue ? dueAmount : (currentBillTotal - paidAmount),
       date: new Date().toLocaleDateString(),
       time: new Date().toLocaleTimeString()
     };
 
     const transactions = getTransactions();
-    saveTransactions([transaction, ...transactions]);
+    transactions.push(transaction);
+    saveTransactions(transactions);
+
+    // If old dues were included and fully paid, clear customer dues
+    if (includeOldDue && dueInfo && paidAmount >= totalAmount) {
+      clearCustomerDues(formData.phone);
+      toast({
+        title: "Dues Cleared",
+        description: "Customer's previous dues have been cleared"
+      });
+    }
+
+    // Update inventory
+    const inventory = getInventory();
+    const updatedInventory = inventory.map(item => {
+      if (item.name === 'Powders') {
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.powderQuantity) || 0)) };
+      }
+      if (item.name === 'Small Bags') {
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.smallBagsQuantity) || 0)) };
+      }
+      if (item.name === 'Big Bags') {
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.bigBagsQuantity) || 0)) };
+      }
+      if (item.name === 'Bran Bags') {
+        return { ...item, count: Math.max(0, item.count - (parseFloat(formData.branBagsQuantity) || 0)) };
+      }
+      return item;
+    });
+    saveInventory(updatedInventory);
 
     // Reset form
     setFormData({
-      customerName: '',
+      name: '',
       village: '',
-      phoneNumber: '',
-      loadBrought: 0,
-      items: [],
-      totalAmount: 0,
-      paidAmount: 0,
-      dueAmount: 0
+      phone: '',
+      millingRate: rates.milling[0],
+      millingQuantity: '',
+      powderQuantity: '',
+      bigBagsQuantity: '',
+      smallBagsQuantity: '',
+      branBagsQuantity: '',
+      unloadingQuantity: '',
+      loadingQuantity: '',
+      nukaluQuantity: '',
+      extraQuantity: '',
+      paidAmount: ''
     });
 
+    setDueInfo(null);
+    setIncludeOldDue(false);
+    setShowConfirmDialog(false);
+    setShowDueDialog(false);
+    
     toast({
-      title: "Transaction Saved",
-      description: "Billing completed successfully"
+      title: "Success",
+      description: "Transaction saved successfully",
     });
-
-    // Check for dues
-    const duesInfo = checkDuesByPhone(formData.phoneNumber);
-    if (duesInfo && duesInfo.totalDue > 0) {
-      setCustomerDueAlert({
-        isOpen: true,
-        customerName: formData.customerName,
-        phoneNumber: formatPhoneNumber(formData.phoneNumber),
-        dueAmount: duesInfo.totalDue
-      });
-    }
-  };
-
-  const updateRate = (key: string, value: number) => {
-    const newRates = { ...rates, [key]: value };
-    setRates(newRates);
-    saveRates(newRates);
-  };
-
-  const updateMillingRate = (value: number) => {
-    const newRates = { ...rates, milling: [value, rates.milling[1]] };
-    setRates(newRates);
-    saveRates(newRates);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       <div className="container mx-auto px-4 py-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6">Billing</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-6">Billing Management</h1>
 
-        {/* Customer Information */}
-        <Card className="mb-6">
+        <Card>
           <CardHeader>
-            <CardTitle>Customer Information</CardTitle>
+            <CardTitle>Customer Data Entry</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {dueInfo && (
+              <Alert className="mb-4 border-orange-200 bg-orange-50">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>Previous Dues Found:</strong> This phone number has ₹{dueInfo.totalDue.toFixed(2)} 
+                  in outstanding dues from {dueInfo.transactionCount} transaction(s). 
+                  Last transaction: {dueInfo.lastTransactionDate}
+                </AlertDescription>
+              </Alert>
+            )}
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div>
-                <Label htmlFor="customerName">Customer Name *</Label>
+                <Label htmlFor="name">Name *</Label>
                 <Input
-                  id="customerName"
-                  value={formData.customerName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, customerName: e.target.value }))}
-                  placeholder="Enter customer name"
+                  id="name"
+                  required
+                  value={formData.name}
+                  onChange={(e) => setFormData({...formData, name: e.target.value})}
                 />
               </div>
               <div>
-                <Label htmlFor="village">Village</Label>
+                <Label htmlFor="village">Village *</Label>
                 <Input
                   id="village"
+                  required
                   value={formData.village}
-                  onChange={(e) => setFormData(prev => ({ ...prev, village: e.target.value }))}
-                  placeholder="Enter village"
+                  onChange={(e) => setFormData({...formData, village: e.target.value})}
+                  list="villages"
                 />
+                <datalist id="villages">
+                  {villages.map((village) => (
+                    <option key={village} value={village} />
+                  ))}
+                </datalist>
               </div>
               <div>
-                <Label htmlFor="phoneNumber">Phone Number *</Label>
+                <Label htmlFor="phone">Phone Number (10 digits)</Label>
                 <Input
-                  id="phoneNumber"
-                  value={formData.phoneNumber}
-                  onChange={(e) => setFormData(prev => ({ ...prev, phoneNumber: e.target.value }))}
-                  placeholder="Enter phone number"
+                  id="phone"
+                  value={formData.phone}
+                  onChange={(e) => handlePhoneInput(e.target.value)}
+                  placeholder="Enter 10-digit phone number"
                   maxLength={10}
                 />
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        {/* Quick Add Items */}
-        <Card className="mb-6">
-          <CardHeader>
-            <div className="flex justify-between items-center">
-              <CardTitle>Quick Add Items</CardTitle>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={() => setShowRatesCard(!showRatesCard)}
-              >
-                {showRatesCard ? 'Hide' : 'Show'} Rates
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            {showRatesCard && (
-              <div className="mb-4 p-4 border rounded bg-gray-50">
-                <h3 className="font-semibold mb-3">Current Rates</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <div>
-                    <Label>Milling (per quintal)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.milling[0]}
-                      onChange={(e) => updateMillingRate(parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Powder (per bag)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.powder}
-                      onChange={(e) => updateRate('powder', parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Big Bags</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.bigBags}
-                      onChange={(e) => updateRate('bigBags', parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Small Bags</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.smallBags}
-                      onChange={(e) => updateRate('smallBags', parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Bran Bags</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.branBags}
-                      onChange={(e) => updateRate('branBags', parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Unloading</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.unloading}
-                      onChange={(e) => updateRate('unloading', parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Loading</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.loading}
-                      onChange={(e) => updateRate('loading', parseFloat(e.target.value))}
-                    />
-                  </div>
-                  <div>
-                    <Label>Nukalu</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={rates.nukalu}
-                      onChange={(e) => updateRate('nukalu', parseFloat(e.target.value))}
-                    />
-                  </div>
-                </div>
-              </div>
+            {/* Previous Due Inclusion Option */}
+            {dueInfo && includeOldDue && (
+              <Alert className="mb-4 border-blue-200 bg-blue-50">
+                <AlertDescription className="text-blue-800">
+                  Previous due of ₹{dueInfo.totalDue.toFixed(2)} is included in the total amount.
+                </AlertDescription>
+              </Alert>
             )}
-            
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <Button onClick={() => addItem('Milling', rates.milling[0])} variant="outline">
-                Add Milling (₹{rates.milling[0]})
-              </Button>
-              <Button onClick={() => addItem('Powder', rates.powder)} variant="outline">
-                Add Powder (₹{rates.powder})
-              </Button>
-              <Button onClick={() => addItem('Big Bags', rates.bigBags)} variant="outline">
-                Add Big Bags (₹{rates.bigBags})
-              </Button>
-              <Button onClick={() => addItem('Small Bags', rates.smallBags)} variant="outline">
-                Add Small Bags (₹{rates.smallBags})
-              </Button>
-              <Button onClick={() => addItem('Bran Bags', rates.branBags)} variant="outline">
-                Add Bran Bags (₹{rates.branBags})
-              </Button>
-              <Button onClick={() => addItem('Unloading', rates.unloading)} variant="outline">
-                Add Unloading (₹{rates.unloading})
-              </Button>
-              <Button onClick={() => addItem('Loading', rates.loading)} variant="outline">
-                Add Loading (₹{rates.loading})
-              </Button>
-              <Button onClick={() => addItem('Nukalu', rates.nukalu)} variant="outline">
-                Add Nukalu (₹{rates.nukalu})
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
 
-        {/* Billing Items */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Billing Items</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {formData.items.length === 0 ? (
-              <p className="text-gray-500 text-center py-4">No items added yet</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse border border-gray-300">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border border-gray-300 p-3 text-left">Item</th>
-                      <th className="border border-gray-300 p-3 text-center">Quantity</th>
-                      <th className="border border-gray-300 p-3 text-center">Rate</th>
-                      <th className="border border-gray-300 p-3 text-center">Total</th>
-                      <th className="border border-gray-300 p-3 text-center">Actions</th>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse border border-gray-300">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 p-3 text-left">Item</th>
+                    <th className="border border-gray-300 p-3 text-left">Rate</th>
+                    <th className="border border-gray-300 p-3 text-left">Quantity</th>
+                    <th className="border border-gray-300 p-3 text-left">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="border border-gray-300 p-3">Milling</td>
+                    <td className="border border-gray-300 p-3">
+                      <Select 
+                        value={formData.millingRate.toString()} 
+                        onValueChange={(value) => setFormData({...formData, millingRate: parseFloat(value)})}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(rates.milling as number[]).map((rate) => (
+                            <SelectItem key={rate} value={rate.toString()}>{rate.toFixed(2)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </td>
+                    <td className="border border-gray-300 p-3">
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={formData.millingQuantity}
+                        onChange={(e) => handleQuantityChange('millingQuantity', e.target.value)}
+                        placeholder="0"
+                        className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        style={{ MozAppearance: 'textfield' }}
+                      />
+                    </td>
+                    <td className="border border-gray-300 p-3">
+                      {calculateItemTotal(formData.millingRate, formData.millingQuantity).toFixed(2)}
+                    </td>
+                  </tr>
+                  
+                  {[
+                    { name: 'Powder', rateKey: 'powder', quantityKey: 'powderQuantity' },
+                    { name: 'Big Bags', rateKey: 'bigBags', quantityKey: 'bigBagsQuantity' },
+                    { name: 'Small Bags', rateKey: 'smallBags', quantityKey: 'smallBagsQuantity' },
+                    { name: 'Bran Bags', rateKey: 'branBags', quantityKey: 'branBagsQuantity' },
+                    { name: 'Unloading', rateKey: 'unloading', quantityKey: 'unloadingQuantity' },
+                    { name: 'Loading', rateKey: 'loading', quantityKey: 'loadingQuantity' },
+                    { name: 'Nukalu', rateKey: 'nukalu', quantityKey: 'nukaluQuantity' },
+                    { name: 'Extra Charges', rateKey: 'extra', quantityKey: 'extraQuantity' }
+                  ].map((item) => (
+                    <tr key={item.name}>
+                      <td className="border border-gray-300 p-3">{item.name}</td>
+                      <td className="border border-gray-300 p-3">
+                        <Input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={rates[item.rateKey as keyof typeof rates] as number}
+                          onChange={(e) => handleRateChange(item.rateKey, parseFloat(e.target.value) || 0)}
+                        />
+                      </td>
+                      <td className="border border-gray-300 p-3">
+                        <Input
+                          type="number"
+                          min="0"
+                          step={item.name === 'Loading' ? "0.01" : "1"}
+                          value={formData[item.quantityKey as keyof typeof formData] as string}
+                          onChange={(e) => handleQuantityChange(item.quantityKey, e.target.value)}
+                          placeholder="0"
+                          className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          style={{ MozAppearance: 'textfield' }}
+                        />
+                      </td>
+                      <td className="border border-gray-300 p-3">
+                        {calculateItemTotal(rates[item.rateKey as keyof typeof rates] as number, formData[item.quantityKey as keyof typeof formData] as string).toFixed(2)}
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {formData.items.map((item, index) => (
-                      <tr key={index}>
-                        <td className="border border-gray-300 p-3">{item.name}</td>
-                        <td className="border border-gray-300 p-3 text-center">
-                          <div className="flex items-center justify-center space-x-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => updateItemQuantity(item.name, item.quantity - 1)}
-                            >
-                              <Minus size={16} />
-                            </Button>
-                            <span className="w-12 text-center">{item.quantity}</span>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => updateItemQuantity(item.name, item.quantity + 1)}
-                            >
-                              <Plus size={16} />
-                            </Button>
-                          </div>
-                        </td>
-                        <td className="border border-gray-300 p-3 text-center">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={item.rate}
-                            onChange={(e) => updateItemRate(item.name, parseFloat(e.target.value) || 0)}
-                            className="w-20 text-center"
-                          />
-                        </td>
-                        <td className="border border-gray-300 p-3 text-center">₹{item.total.toFixed(2)}</td>
-                        <td className="border border-gray-300 p-3 text-center">
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => removeItem(item.name)}
-                          >
-                            <Trash2 size={16} />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
-        {/* Payment Information */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Payment Information</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="text-center">
-                <Label className="text-lg">Total Amount</Label>
-                <div className="text-3xl font-bold text-green-600 mt-2">
-                  ₹{formData.totalAmount.toFixed(2)}
+            <div className="mt-6 bg-gray-100 p-4 rounded-lg">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <strong>Total Amount: ₹{totalAmount.toFixed(2)}</strong>
+                  {includeOldDue && dueInfo && (
+                    <div className="text-sm text-gray-600">
+                      (Includes ₹{dueInfo.totalDue.toFixed(2)} previous due)
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <Label htmlFor="paidAmount">Paid Amount:</Label>
+                  <Input
+                    id="paidAmount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={formData.paidAmount}
+                    onChange={(e) => setFormData({...formData, paidAmount: e.target.value})}
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <strong>Due Amount: ₹{dueAmount.toFixed(2)}</strong>
                 </div>
               </div>
-              <div>
-                <Label htmlFor="paidAmount">Paid Amount</Label>
-                <Input
-                  id="paidAmount"
-                  type="number"
-                  step="0.01"
-                  value={formData.paidAmount}
-                  onChange={(e) => setFormData(prev => ({ ...prev, paidAmount: parseFloat(e.target.value) || 0 }))}
-                  placeholder="Enter paid amount"
-                />
-              </div>
-              <div className="text-center">
-                <Label className="text-lg">Due Amount</Label>
-                <div className="text-3xl font-bold text-red-600 mt-2">
-                  ₹{formData.dueAmount.toFixed(2)}
-                </div>
-              </div>
+            </div>
+
+            <div className="mt-6">
+              <Button onClick={handleSave} className="bg-green-600 hover:bg-green-700">
+                Save Transaction
+              </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Save Transaction */}
-        <Card>
-          <CardContent className="p-6">
-            <Button 
-              onClick={handleSaveTransaction}
-              className="w-full"
-              size="lg"
-              disabled={!formData.customerName || !formData.phoneNumber || formData.items.length === 0}
-            >
-              <Save className="mr-2" size={20} />
-              Save Transaction
-            </Button>
-          </CardContent>
-        </Card>
+        {/* Due Payment Dialog */}
+        <AlertDialog open={showDueDialog} onOpenChange={setShowDueDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Previous Due Found</AlertDialogTitle>
+              <AlertDialogDescription>
+                This customer has a previous due of ₹{dueInfo?.totalDue.toFixed(2)}. 
+                Would you like to include this in the current bill?
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={() => {
+                setIncludeOldDue(false);
+                setShowDueDialog(false);
+                setShowConfirmDialog(true);
+              }}>
+                No, Bill Separately
+              </AlertDialogCancel>
+              <AlertDialogAction onClick={() => {
+                setIncludeOldDue(true);
+                setShowDueDialog(false);
+                setShowConfirmDialog(true);
+              }}>
+                Yes, Include Previous Due
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-        {/* Customer Due Alert */}
-        <CustomerDueAlert
-          isOpen={customerDueAlert.isOpen}
-          onClose={() => setCustomerDueAlert({ ...customerDueAlert, isOpen: false })}
-          customerName={customerDueAlert.customerName}
-          phoneNumber={customerDueAlert.phoneNumber}
-          dueAmount={customerDueAlert.dueAmount}
-          onClearDue={() => {
-            setCustomerDueAlert({ ...customerDueAlert, isOpen: false });
-            toast({
-              title: "Due Cleared",
-              description: "Customer due has been cleared"
-            });
-          }}
-        />
+        <AlertDialog open={showConfirmDialog} onOpenChange={setShowConfirmDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Confirm Save</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to save this transaction? 
+                {includeOldDue && dueInfo && paidAmount >= totalAmount && (
+                  <div className="mt-2 p-2 bg-green-100 rounded">
+                    <strong>Note:</strong> Customer's previous dues will be cleared as they have paid the full amount.
+                  </div>
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={confirmSave}>OK</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
