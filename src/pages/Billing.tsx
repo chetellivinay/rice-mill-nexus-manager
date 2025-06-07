@@ -200,6 +200,12 @@ const Billing = () => {
     saveRates(newRates);
   };
 
+  const updateMillingRate = (value: number) => {
+    const newRates = { ...rates, milling: [value, rates.milling[1]] };
+    setRates(newRates);
+    saveRates(newRates);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navigation />
@@ -270,7 +276,7 @@ const Billing = () => {
                       type="number"
                       step="0.01"
                       value={rates.milling[0]}
-                      onChange={(e) => updateRate('milling', [parseFloat(e.target.value), rates.milling[1]])}
+                      onChange={(e) => updateMillingRate(parseFloat(e.target.value))}
                     />
                   </div>
                   <div>
